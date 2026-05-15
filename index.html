@@ -932,10 +932,11 @@ function onCashBlur() {
   var amt = parseCurrency(document.getElementById('f-cash').value);
   var warn = document.getElementById('cash-warning');
   if (amt > 0) {
-    document.getElementById('takings-location-section').style.display = 'block';
+    // Always show takings location
+  document.getElementById('takings-location-section').style.display = 'block';
     warn.style.display = amt > 300 ? 'block' : 'none';
   } else {
-    document.getElementById('takings-location-section').style.display = 'none';
+    // takings location always shown
     warn.style.display = 'none';
   }
 
