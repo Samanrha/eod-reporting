@@ -204,7 +204,7 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       </div>
 
       <!-- Total Covers (Bridport + Dorchester only) -->
-      <div class="field" id="covers-field" style="display:none;">
+      <div class="field" id="covers-field">
         <label>Total Covers</label>
         <input type="number" id="f-covers" placeholder="0" min="0" style="max-width:160px;">
       </div>
@@ -3218,8 +3218,8 @@ function openReport(idx) {
   html += section('Takings', [
     ['Cash Takings', r.cashTakings || null],
     ['Cash Float', r.cashFloat || null],
-    ['Takings kept', r.takingsLocation ? (r.takingsLocation === 'given' ? `Given to: ${r.givenTo || '?'}` : r.takingsLocation) : null],
-    ['Change needed', r.changeNeeded === 'yes' ? (r.changeDetail || 'Yes') : r.changeNeeded || null],
+    ['Takings kept', r.takingsLocation ? (r.takingsLocation === 'given' ? `${r.givenTo || '?'}` : r.takingsLocation) : null],
+    ['Change needed', r.changeNeeded === 'yes' ? (r.changeDetail || r.changeNeeded || 'Yes') : r.changeNeeded || null],
     ['TA Sales', r.taSales ? '£' + r.taSales : null],
     ['TA Orders', r.taOrders],
     ['Cook Time', r.cookTime || (r.reportData?.cook_time ? r.reportData.cook_time : null)],
