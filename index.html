@@ -3035,7 +3035,6 @@ function submitReport() {
       issues: getListValues('issue-list', 'textarea'),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders,
-    };
       // ── Sheet-mapped fields (Apps Script v3 keys) ──
       action: 'submitEod',
       eod_date: report.date,
