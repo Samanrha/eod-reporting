@@ -695,7 +695,7 @@ function closeModal() {
 // -- GOOGLE SHEETS WEBHOOK URL ------------------------------------
 // Paste your deployed Apps Script URL here after deploying
 window._lateImages = window._lateImages || [];
-var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbx9BL3S5JEVF58zNPkgs9Um7yEi-5X85VkzZoO7Yf6GyvZNN0j-Fo_R8EJzhRuoXtrQ/exec';
+var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbz5pWqGKiSDtU6tQS9UCtkkbjuqolEkFDCykBn0pwljqU-yNfqTeMsc9EOGhlGXB0ct/exec';
 
 // -- API KEY (stored in session only) -----------------------------
 window._anthropicKey = localStorage.getItem('_ak') || '';
@@ -933,6 +933,7 @@ function onCashBlur() {
   var warn = document.getElementById('cash-warning');
   if (amt > 0) {
     // Always show takings location
+  // Always show
   document.getElementById('takings-location-section').style.display = 'block';
     warn.style.display = amt > 300 ? 'block' : 'none';
   } else {
