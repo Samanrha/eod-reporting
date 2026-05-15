@@ -3033,7 +3033,9 @@ function submitReport() {
       staffErrors: getStaffErrors(),
       ckStock: getCkStockData(),
       issues: getListValues('issue-list', 'textarea'),
-      comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
+      comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',,
+      check_payment_orders: cpOrders
+    };
       // ── Sheet-mapped fields (Apps Script v3 keys) ──
       action: 'submitEod',
       eod_date: report.date,
@@ -3071,7 +3073,9 @@ function submitReport() {
       wastage: report.wastage,
       table_deposits: getDeposits(),
       issues: getListValues('issue-list', 'textarea').join(' | '),
-      comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : ''
+      comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
+      check_payment_orders: cpOrders
+    };
     };
 
     fetch(SHEETS_WEBHOOK_URL, {
