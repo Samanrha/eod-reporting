@@ -3087,7 +3087,6 @@ function submitReport() {
     }).catch(function(err) {
       console.warn('Sheets sync failed (report saved locally):', err);
     });
-  }
 
   document.getElementById('form-content').style.display = 'none';
   document.getElementById('success-screen').classList.add('show');
