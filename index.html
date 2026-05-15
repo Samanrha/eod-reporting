@@ -3052,7 +3052,7 @@ function submitReport() {
       avg_ticket: extractedReportData.average_ticket || '',
       discount: extractedReportData.discount || '',
       open_orders: extractedReportData.has_open_orders || '',
-      check_payment_total: (function(){ var t=0; document.querySelectorAll('#check-payment-orders-list .cp-amount').forEach(function(el){ t+=parseCurrency(el.value); }); return t>0?t.toFixed(2):''; })(),
+      check_payment_total: (function(){ var t=0; document.querySelectorAll('#check-payment-orders-list .cp-amount').forEach(function(el){ t+=parseCurrency(el.value); }); return t>0 ? t.toFixed(2) : ''; })(),
       ps_total: extractedPsData.total || '',
       ps_orderlord_amt: document.getElementById('ps-orderlord-amount') ? document.getElementById('ps-orderlord-amount').textContent.replace('£','') : '',
       ps_match: document.getElementById('ps-match-status') ? document.getElementById('ps-match-status').textContent : '',
