@@ -990,6 +990,11 @@ function updateExpectedCash() {
 
 function onTakingsLocationChange() {
   const val = document.getElementById('f-takings-location').value;
+    if (!val) {
+      alert('Please select where the cash was kept before submitting.');
+      document.getElementById('f-takings-location').focus();
+      return;
+    }
   document.getElementById('given-to-field').style.display = val === 'given' ? 'block' : 'none';
 }
 
@@ -3066,6 +3071,7 @@ function submitReport() {
       total_fuel_money: (function(){ var t=0; document.querySelectorAll('.drv-fuel').forEach(function(el){ t+=parseCurrency(el.value); }); return t.toFixed(2); })(),
       total_wage_money: (function(){ var t=0; document.querySelectorAll('.drv-wage').forEach(function(el){ t+=parseCurrency(el.value); }); return t.toFixed(2); })(),
       cash_in: report.cashIn,
+        covers: document.getElementById('f-covers')?.value || '',
       late_orders: getLateOrdersData(),
       discounts_errors: getDiscountsData(),
       stock_to_order: report.stock,
