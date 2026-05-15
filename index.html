@@ -2984,6 +2984,7 @@ function submitReport() {
       float: report.cashFloat,
       givenTo: report.givenTo,
       changeNeeded: report.changeNeeded,
+        changeDetail: document.getElementById('f-change-detail')?.value.trim() || '',
       expectedTurnover: extractedReportData.expected_turnover || '',
       orderlordCashExtracted: extractedReportData.orderlord_cash || '',
       orderlordBarCard: extractedReportData.orderlord_bar_card || '',
