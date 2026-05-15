@@ -3072,6 +3072,7 @@ function submitReport() {
       total_fuel_money: (function(){ var t=0; document.querySelectorAll('.drv-fuel').forEach(function(el){ t+=parseCurrency(el.value); }); return t.toFixed(2); })(),
       total_wage_money: (function(){ var t=0; document.querySelectorAll('.drv-wage').forEach(function(el){ t+=parseCurrency(el.value); }); return t.toFixed(2); })(),
       cash_in: report.cashIn,
+        takings_location: document.getElementById('f-takings-location')?.value || '',
         covers: document.getElementById('f-covers')?.value || '',
       late_orders: getLateOrdersData(),
       discounts_errors: getDiscountsData(),
