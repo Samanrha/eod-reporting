@@ -1,3 +1,10 @@
+<!--
+  EOD Reporting App — M95 Kitchens Group
+  Venues: Bridport, Dorchester, Rivaaz Lymington
+  Stack: Vanilla JS, Netlify, Google Sheets via Apps Script webhook
+  Repo: https://github.com/Samanrha/eod-reporting
+  Live: https://eod-reporting.netlify.app
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -695,7 +702,7 @@ function closeModal() {
 // -- GOOGLE SHEETS WEBHOOK URL ------------------------------------
 // Paste your deployed Apps Script URL here after deploying
 window._lateImages = window._lateImages || [];
-var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyAHIDAMAHi4ZDqoT_ohFldI-XT3Z-wHDwAZQamJ75782wlxpB64Ayi3Xubpuiqw_kp/exec';
+var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzEBdbufAV1aLhZAkRkk5Eg0uK-bAiGc4mY4QR6cpExg4WhrDjw9E9Zz3oXKrtLvRx_/exec';
 
 // -- API KEY (stored in session only) -----------------------------
 window._anthropicKey = localStorage.getItem('_ak') || '';
