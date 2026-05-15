@@ -693,7 +693,7 @@ function closeModal() {
 // -- GOOGLE SHEETS WEBHOOK URL ------------------------------------
 // Paste your deployed Apps Script URL here after deploying
 window._lateImages = window._lateImages || [];
-var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbw2aAgsXm0QRCBwh6UIom_4zrpHFEZ766WLTpsS3tB9oJpfvqoSy8-9HJXOm6m2mws0/exec';
+var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyl-JZExBddRNTlbJe9r2fApRbBUfKBUEOfQaXLGeedvmgkbO0u5cUJguvK1nrIjLm3/exec';
 
 // -- API KEY (stored in session only) -----------------------------
 window._anthropicKey = localStorage.getItem('_ak') || '';
@@ -2737,25 +2737,39 @@ function getListValues(listId, selector) {
 }
 
 function getDrivers() {
-  const rows = document.querySelectorAll('#driver-list .driver-row');
-  const drivers = [];
-  rows.forEach(row => {
-    const inputs = row.querySelectorAll('input');
-    const name = inputs[0].value.trim();
-    const amount = inputs[1].value.trim();
-    if (name) drivers.push({ name, amount: amount || '0' });
+  var drivers = [];
+  document.querySelectorAll('#driver-list .ai-driver-row').forEach(function(row) {
+    var name=( row.dataset.driverName||'').trim();
+    var fuelEl=row.querySelector('.drv-fuel'),wageEl=row.querySelector('.drv-wage');
+    var startEl=row.querySelector('.drv-start'),endEl=row.querySelector('.drv-end');
+    var fuel=fuelEl?fuelEl.value.replace(/[£]/g,'').trim():'0';
+    var wage=wageEl?wageEl.value.replace(/[£]/g,'').trim():'0';
+    if(name) drivers.push({name:name,fuel:fuel||'0',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():''});
+  });
+  document.querySelectorAll('#driver-list .driver-row:not(.ai-driver-row)').forEach(function(row) {
+    var name='';
+    var sel=row.querySelector('select');
+    if(sel&&sel.value&&sel.value!==''&&sel.value!=='__manual__'){name=sel.value.trim();}
+    if(!name){var inps=row.querySelectorAll('input[type="text"]');for(var i=0;i<inps.length;i++){var cls=inps[i].className||'';if(cls.indexOf('drv-')===-1&&inps[i].style.display!=='none'&&inps[i].value.trim()){name=inps[i].value.trim();break;}}}
+    var fuelEl=row.querySelector('.drv-fuel'),wageEl=row.querySelector('.drv-wage');
+    var fuel=fuelEl?fuelEl.value.replace(/[£]/g,'').trim():'0';
+    var wage=wageEl?wageEl.value.replace(/[£]/g,'').trim():'0';
+    if(name) drivers.push({name:name,fuel:fuel||'0',wage:wage||'0',amount:fuel||'0',start:'',end:''});
   });
   return drivers;
 }
 
 function getStaff() {
-  const rows = document.querySelectorAll('#staff-list .driver-row');
-  const staff = [];
-  rows.forEach(row => {
-    const inputs = row.querySelectorAll('input');
-    const name = inputs[0].value.trim();
-    const hours = inputs[1].value.trim();
-    if (name) staff.push({ name, hours });
+  var staff=[];
+  document.querySelectorAll('#staff-list .driver-row').forEach(function(row) {
+    var nameEl=row.querySelector('.stf-name'),startEl=row.querySelector('.stf-start');
+    var endEl=row.querySelector('.stf-end'),hoursEl=row.querySelector('.stf-hours');
+    var name=nameEl?nameEl.value.trim():'';
+    var start=startEl?startEl.value.trim():'';
+    var end=endEl?endEl.value.trim():'';
+    var hours=hoursEl?hoursEl.value.trim():'';
+    if(!name){var inp=row.querySelectorAll('input');if(inp[0])name=inp[0].value.trim();if(inp[1])start=inp[1].value.trim();if(inp[2])end=inp[2].value.trim();if(inp[3])hours=inp[3].value.trim();}
+    if(name) staff.push({name:name,start:start,end:end,hours:hours});
   });
   return staff;
 }
