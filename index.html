@@ -1384,6 +1384,7 @@ async function analyseDeliveryImage() {
     if (status) { status.textContent = '⚠ Error: ' + err.message; status.style.color = 'var(--red)'; }
   }
   if (btn) { btn.textContent = '✓ Analysed — Re-analyse'; btn.disabled = false; }
+  window._deliveryAnalysed = true;
 }
 
 function handleReportDrop(e) {
@@ -2885,16 +2886,17 @@ function getDeposits() {
 function submitReport() {
   if (!currentSite) { alert('Please select a site first.'); return; }
 
-  // Validate daily report screenshot uploaded
+  // Validate Orderlord Daily Report — must be uploaded AND analysed
   if (!reportImageBase64 && !window._reportImageBase64) {
-    alert('⚠ Please upload the Orderlord Daily Report screenshot before submitting.');
+    alert('\u26a0 Please upload the Orderlord Daily Report screenshot before submitting.');
     var area = document.getElementById('report-upload-area');
-    if (area) area.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // Flash the upload box red
-    if (area) {
-      area.style.borderColor = 'var(--red)';
-      setTimeout(function() { area.style.borderColor = ''; }, 3000);
-    }
+    if (area) { area.scrollIntoView({ behavior: 'smooth', block: 'center' }); area.style.borderColor = 'var(--red)'; setTimeout(function(){ area.style.borderColor=''; }, 3000); }
+    return;
+  }
+  if (!extractedReportData || !extractedReportData.expected_turnover) {
+    alert('\u26a0 Please run the Orderlord AI analysis before submitting.\nTap \"Analyse screenshot with AI\" under the Daily Report screenshot.');
+    var analyseBtn = document.getElementById('report-analyse-btn');
+    if (analyseBtn) { analyseBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); analyseBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ analyseBtn.style.background=''; }, 3000); }
     return;
   }
 
@@ -2909,21 +2911,33 @@ function submitReport() {
     return;
   }
 
-  // Validate delivery screenshot — mandatory for all sites
+  // Validate delivery screenshot — must be uploaded AND analysed
   var delivImgs = window._deliveryImages || [];
   if (!delivImgs.length && !window._deliveryImageBase64) {
-    alert('⚠ Please upload the Orderlord Delivery List screenshot before submitting.');
+    alert('\u26a0 Please upload the Orderlord Delivery List screenshot before submitting.');
     var dArea = document.getElementById('delivery-upload-area');
-    if (dArea) { dArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); dArea.style.borderColor = 'var(--red)'; setTimeout(function(){ dArea.style.borderColor = ''; }, 3000); }
+    if (dArea) { dArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); dArea.style.borderColor = 'var(--red)'; setTimeout(function(){ dArea.style.borderColor=''; }, 3000); }
+    return;
+  }
+  if (!window._deliveryAnalysed) {
+    alert('\u26a0 Please run the Delivery List AI analysis before submitting.\nTap \"Analyse Deliveries with AI\" under the delivery screenshot.');
+    var dBtn = document.getElementById('delivery-analyse-btn');
+    if (dBtn) { dBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); dBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ dBtn.style.background=''; }, 3000); }
     return;
   }
 
-  // Validate Paymentsense screenshot — mandatory for Bridport and Rivaaz
+  // Validate Paymentsense — must be uploaded AND analysed (Bridport + Rivaaz)
   if (currentSite !== 'dorchester') {
     if (!psImageBase64 && !window._psImageBase64) {
-      alert('⚠ Please upload the Paymentsense Transaction History screenshot before submitting.');
+      alert('\u26a0 Please upload the Paymentsense Transaction History screenshot before submitting.');
       var pArea = document.getElementById('ps-upload-area');
-      if (pArea) { pArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); pArea.style.borderColor = 'var(--red)'; setTimeout(function(){ pArea.style.borderColor = ''; }, 3000); }
+      if (pArea) { pArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); pArea.style.borderColor = 'var(--red)'; setTimeout(function(){ pArea.style.borderColor=''; }, 3000); }
+      return;
+    }
+    if (!extractedPsData || !extractedPsData.total) {
+      alert('\u26a0 Please run the Paymentsense AI analysis before submitting.\nTap \"Analyse screenshot with AI\" under the Paymentsense screenshot.');
+      var psBtn = document.getElementById('ps-analyse-btn');
+      if (psBtn) { psBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); psBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ psBtn.style.background=''; }, 3000); }
       return;
     }
   }
@@ -3162,6 +3176,7 @@ function resetForm() {
   extractedReportData = {};
   extractedPsData = {};
   checkPaymentOrders = [];
+  window._deliveryAnalysed = false;
   // Hide New Report button, keep View Reports visible, return to login screen
   document.getElementById('nav-new-report').style.display = 'none';
   document.getElementById('login-overlay').classList.remove('hidden');
