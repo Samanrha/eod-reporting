@@ -696,7 +696,12 @@ function checkLocationPin() {
     var navNew = document.getElementById('nav-new-report');
     if (navNew) navNew.style.display = 'block';
     showView('form');
-    setTimeout(function(){ if(typeof selectSite === 'function') selectSite(selectedLocation); }, 100);
+    // show form view inline — don't rely on showView being defined yet
+    document.querySelectorAll('.view').forEach(function(el){ el.classList.remove('active'); });
+    var fv = document.getElementById('view-form');
+    if (fv) fv.classList.add('active');
+    document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
+    setTimeout(function(){ if(typeof selectSite === 'function') selectSite(selectedLocation); }, 150);
   } else {
     var pinErr = document.getElementById('login-pin-error');
     if (pinErr) pinErr.textContent = 'Incorrect PIN. Try again.';
@@ -2253,46 +2258,7 @@ function goToNewReport() {
   // Return to login screen for fresh location selection
   resetForm();
 }
-function selectLocation(loc) {
-  selectedLocation = loc;
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  var locBtn = document.getElementById('loc-' + loc);
-  if (locBtn) locBtn.classList.add('selected');
-  var labels = { bridport: 'Bridport', dorchester: 'Dorchester', rivaaz: 'Rivaaz Lymington' };
-  var titleEl = document.getElementById('login-pin-title');
-  if (titleEl) titleEl.textContent = labels[loc];
-  var subEl = document.getElementById('login-pin-sub');
-  if (subEl) subEl.textContent = 'Enter your PIN to continue';
-  var pinBox = document.getElementById('login-pin-box');
-  if (pinBox) pinBox.style.display = 'block';
-  var pinInp = document.getElementById('login-pin-input');
-  if (pinInp) pinInp.value = '';
-  var pinErr = document.getElementById('login-pin-error');
-  if (pinErr) pinErr.textContent = '';
-  setTimeout(function() { var p = document.getElementById('login-pin-input'); if (p) p.focus(); }, 100);
-}
-
-function clearLocationSelection() {
-  selectedLocation = '';
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  document.getElementById('login-pin-box').style.display = 'none';
-  document.getElementById('login-pin-input').value = '';
-}
-
-function checkLocationPin() {
-  const val = document.getElementById('login-pin-input').value;
-  if (val.length < 4) return;
-  if (val === PINS[selectedLocation]) {
-    document.getElementById('login-overlay').classList.add('hidden');
-    // Show New Report button (View Reports always visible)
-    document.getElementById('nav-new-report').style.display = 'block';
-    showView('form');
-    setTimeout(() => selectSite(selectedLocation), 100);
-  } else {
-    document.getElementById('login-pin-error').textContent = 'Incorrect PIN. Try again.';
-    document.getElementById('login-pin-input').value = '';
-  }
-}
+// login functions defined in early bridge block above
 
 document.getElementById('login-pin-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') checkLocationPin();
