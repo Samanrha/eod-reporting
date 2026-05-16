@@ -2442,7 +2442,8 @@ function selectSite(site) {
   document.getElementById('deposits-section').style.display = isDorch ? 'none' : 'block';
   document.getElementById('covers-field') && (document.getElementById('covers-field').style.display = (currentSite === 'dorchester') ? 'none' : 'block');
   document.getElementById('cash-correct-toggle').style.display = isDorch ? 'block' : 'none';
-  document.getElementById('ps-section').style.display = isDorch ? 'none' : 'block';
+  var isNonPS = isDorch || site === 'rivaaz';
+  document.getElementById('ps-section').style.display = isNonPS ? 'none' : 'block';
   // Update order/table placeholders based on site
   document.querySelectorAll('.staff-error-row input:first-of-type').forEach(function(inp) {
     inp.placeholder = isDorch ? 'Order #' : 'Order/Table #';
@@ -3152,8 +3153,8 @@ function submitReport() {
     return;
   }
 
-  // Validate Paymentsense — must be uploaded AND analysed (Bridport + Rivaaz)
-  if (currentSite !== 'dorchester') {
+  // Validate Paymentsense — must be uploaded AND analysed (Bridport only)
+  if (currentSite === 'bridport') {
     if (!psImageBase64 && !window._psImageBase64) {
       alert('\u26a0 Please upload the Paymentsense Transaction History screenshot before submitting.');
       var pArea = document.getElementById('ps-upload-area');
