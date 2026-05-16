@@ -395,6 +395,15 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
           <textarea id="f-ps-discrepancy" placeholder="Explain why Paymentsense total differs from Orderlord..." rows="3"></textarea>
         </div>
         <div id="ps-date-error" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none;font-style:italic;"></div>
+        <div id="ps-no-transactions-wrap" style="display:none;margin-top:8px;">
+          <div class="toggle-row" style="background:rgba(201,185,106,.08);border:1px solid var(--gold-dim);">
+            <span class="toggle-label" style="color:var(--gold);">No card transactions tonight — confirm</span>
+            <div class="toggle">
+              <button type="button" id="ps-no-tx-yes" onclick="setPsNoTransactions('yes')" style="touch-action:manipulation;">Yes</button>
+              <button type="button" id="ps-no-tx-no" onclick="setPsNoTransactions('no')" style="touch-action:manipulation;">No</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Cash correct only shown for Dorchester -->
@@ -1065,6 +1074,12 @@ function onChangeNeededToggle() {
 }
 
 // -- FLOAT AUTO-FILL ------------------------------------------------
+function setPsNoTransactions(val) {
+  window._psNoTransactions = val === 'yes';
+  document.getElementById('ps-no-tx-yes').className = val === 'yes' ? 'yes' : '';
+  document.getElementById('ps-no-tx-no').className = val === 'no' ? 'no' : '';
+}
+
 function setDext(val) {
   document.getElementById('dext-yes').className = val === 'yes' ? 'yes' : '';
   document.getElementById('dext-no').className = val === 'no' ? 'no' : '';
@@ -2120,6 +2135,11 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
     }
   }
 
+  // Show "no transactions" toggle if PS total is zero
+  var noTxWrap = document.getElementById('ps-no-transactions-wrap');
+  if (noTxWrap) noTxWrap.style.display = psTotal === 0 ? 'block' : 'none';
+  if (psTotal === 0) window._psNoTransactions = false; // reset until confirmed
+
   // Amount match
   const matchEl = document.getElementById('ps-match-status');
   const discrepancyField = document.getElementById('ps-discrepancy-field');
@@ -3096,10 +3116,22 @@ function submitReport() {
       return;
     }
     if (!extractedPsData || !extractedPsData.total) {
-      alert('\u26a0 Please run the Paymentsense AI analysis before submitting.\nTap \"Analyse screenshot with AI\" under the Paymentsense screenshot.');
-      var psBtn = document.getElementById('ps-analyse-btn');
-      if (psBtn) { psBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); psBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ psBtn.style.background=''; }, 3000); }
-      return;
+      // Allow through if total is 0 AND manager has confirmed no transactions
+      var psTotal = parseFloat((extractedPsData && extractedPsData.total) || 0);
+      if (psTotal === 0 && window._psNoTransactions === true) {
+        // confirmed no transactions — allowed
+      } else if (psTotal === 0 && extractedPsData && extractedPsData.transaction_date !== undefined) {
+        // analysed but zero — need confirmation
+        alert('\u26a0 Paymentsense shows £0.00. If there were no card transactions tonight please confirm using the toggle below the PS screenshot.');
+        var noTxEl = document.getElementById('ps-no-transactions-wrap');
+        if (noTxEl) { noTxEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); noTxEl.style.borderColor = 'var(--gold)'; }
+        return;
+      } else {
+        alert('\u26a0 Please run the Paymentsense AI analysis before submitting.\nTap \"Analyse screenshot with AI\" under the Paymentsense screenshot.');
+        var psBtn = document.getElementById('ps-analyse-btn');
+        if (psBtn) { psBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); psBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ psBtn.style.background=''; }, 3000); }
+        return;
+      }
     }
   }
 
@@ -3340,6 +3372,8 @@ function resetForm() {
   extractedPsData = {};
   checkPaymentOrders = [];
   window._deliveryAnalysed = false;
+  window._psNoTransactions = false;
+  var noTxWrap = document.getElementById('ps-no-transactions-wrap'); if (noTxWrap) noTxWrap.style.display = 'none';
   var drinksSection = document.getElementById('drinks-order-section');
   if (drinksSection) drinksSection.style.display = 'none';
   // Hide New Report button, keep View Reports visible, return to login screen
