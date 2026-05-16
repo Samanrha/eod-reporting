@@ -396,11 +396,23 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
         </div>
         <div id="ps-date-error" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none;font-style:italic;"></div>
         <div id="ps-no-transactions-wrap" style="display:none;margin-top:8px;">
-          <div class="toggle-row" style="background:rgba(201,185,106,.08);border:1px solid var(--gold-dim);">
-            <span class="toggle-label" style="color:var(--gold);">No card transactions tonight — confirm</span>
-            <div class="toggle">
-              <button type="button" id="ps-no-tx-yes" onclick="setPsNoTransactions('yes')" style="touch-action:manipulation;">Yes</button>
-              <button type="button" id="ps-no-tx-no" onclick="setPsNoTransactions('no')" style="touch-action:manipulation;">No</button>
+          <!-- shown when PS=0 and OL also 0 — genuine quiet night -->
+          <div id="ps-no-tx-quiet" style="display:none;">
+            <div class="toggle-row" style="background:rgba(201,185,106,.08);border:1px solid var(--gold-dim);">
+              <span class="toggle-label" style="color:var(--gold);">No card transactions tonight — confirm</span>
+              <div class="toggle">
+                <button type="button" id="ps-no-tx-yes" onclick="setPsNoTransactions('yes')" style="touch-action:manipulation;">Yes</button>
+                <button type="button" id="ps-no-tx-no" onclick="setPsNoTransactions('no')" style="touch-action:manipulation;">No</button>
+              </div>
+            </div>
+          </div>
+          <!-- shown when PS=0 but OL expects payment — missing payment -->
+          <div id="ps-no-tx-missing" style="display:none;">
+            <div style="background:rgba(217,64,64,.12);border:1.5px solid var(--red);border-radius:6px;padding:12px 14px;margin-bottom:8px;">
+              <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:6px;">⚠ Missing payment — Paymentsense shows £0 but Orderlord expects a card payment</div>
+              <div id="ps-missing-amount" style="font-size:13px;color:var(--text);margin-bottom:10px;"></div>
+              <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:6px;">Explanation — what happened? *</label>
+              <textarea id="f-ps-missing-reason" rows="2" placeholder="e.g. Card machine not connected, payment taken manually, dispute with customer..." style="width:100%;background:var(--green);border:1px solid var(--red);border-radius:5px;padding:10px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;resize:vertical;"></textarea>
             </div>
           </div>
         </div>
@@ -2135,10 +2147,30 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
     }
   }
 
-  // Show "no transactions" toggle if PS total is zero
+  // Show "no transactions" section if PS total is zero
   var noTxWrap = document.getElementById('ps-no-transactions-wrap');
-  if (noTxWrap) noTxWrap.style.display = psTotal === 0 ? 'block' : 'none';
-  if (psTotal === 0) window._psNoTransactions = false; // reset until confirmed
+  var quietPanel = document.getElementById('ps-no-tx-quiet');
+  var missingPanel = document.getElementById('ps-no-tx-missing');
+  if (psTotal === 0) {
+    if (noTxWrap) noTxWrap.style.display = 'block';
+    window._psNoTransactions = false; // reset until confirmed
+    if (olAmt > 0) {
+      // Orderlord expects money but PS has nothing — missing payment
+      if (quietPanel) quietPanel.style.display = 'none';
+      if (missingPanel) missingPanel.style.display = 'block';
+      var missingAmtEl = document.getElementById('ps-missing-amount');
+      if (missingAmtEl) missingAmtEl.textContent = 'Orderlord expected £' + olAmt.toFixed(2) + ' from Paymentsense — this has not been received.';
+      window._psMissingPayment = true;
+    } else {
+      // Both zero — genuinely quiet night, just confirm
+      if (quietPanel) quietPanel.style.display = 'block';
+      if (missingPanel) missingPanel.style.display = 'none';
+      window._psMissingPayment = false;
+    }
+  } else {
+    if (noTxWrap) noTxWrap.style.display = 'none';
+    window._psMissingPayment = false;
+  }
 
   // Amount match
   const matchEl = document.getElementById('ps-match-status');
@@ -3118,13 +3150,27 @@ function submitReport() {
     if (!extractedPsData || !extractedPsData.total) {
       // Allow through if total is 0 AND manager has confirmed no transactions
       var psTotal = parseFloat((extractedPsData && extractedPsData.total) || 0);
-      if (psTotal === 0 && window._psNoTransactions === true) {
-        // confirmed no transactions — allowed
+      if (psTotal === 0 && window._psMissingPayment) {
+        // PS=0 but OL expected payment — require explanation
+        var reason = document.getElementById('f-ps-missing-reason') ? document.getElementById('f-ps-missing-reason').value.trim() : '';
+        if (!reason) {
+          alert('\u26a0 Paymentsense shows \u00a30.00 but Orderlord expected a card payment. Please explain what happened in the field below the PS screenshot before submitting.');
+          var missingEl = document.getElementById('ps-no-tx-missing');
+          if (missingEl) { missingEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+          var reasonEl = document.getElementById('f-ps-missing-reason');
+          if (reasonEl) { reasonEl.style.borderColor = 'var(--red)'; reasonEl.focus(); setTimeout(function(){ reasonEl.style.borderColor=''; }, 3000); }
+          return;
+        }
+        // Has explanation — save it as discrepancy and allow through
+        var discEl = document.getElementById('f-ps-discrepancy');
+        if (discEl) discEl.value = 'MISSING PAYMENT: ' + reason;
+      } else if (psTotal === 0 && window._psNoTransactions === true) {
+        // confirmed quiet night — allowed
       } else if (psTotal === 0 && extractedPsData && extractedPsData.transaction_date !== undefined) {
         // analysed but zero — need confirmation
-        alert('\u26a0 Paymentsense shows £0.00. If there were no card transactions tonight please confirm using the toggle below the PS screenshot.');
+        alert('\u26a0 Paymentsense shows \u00a30.00. If there were no card transactions tonight please confirm using the toggle below the PS screenshot.');
         var noTxEl = document.getElementById('ps-no-transactions-wrap');
-        if (noTxEl) { noTxEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); noTxEl.style.borderColor = 'var(--gold)'; }
+        if (noTxEl) { noTxEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
         return;
       } else {
         alert('\u26a0 Please run the Paymentsense AI analysis before submitting.\nTap \"Analyse screenshot with AI\" under the Paymentsense screenshot.');
@@ -3373,7 +3419,9 @@ function resetForm() {
   checkPaymentOrders = [];
   window._deliveryAnalysed = false;
   window._psNoTransactions = false;
+  window._psMissingPayment = false;
   var noTxWrap = document.getElementById('ps-no-transactions-wrap'); if (noTxWrap) noTxWrap.style.display = 'none';
+  var missingReason = document.getElementById('f-ps-missing-reason'); if (missingReason) missingReason.value = '';
   var drinksSection = document.getElementById('drinks-order-section');
   if (drinksSection) drinksSection.style.display = 'none';
   // Hide New Report button, keep View Reports visible, return to login screen
