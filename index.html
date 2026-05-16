@@ -1442,61 +1442,80 @@ async function analyseDeliveryImage() {
   var mediaType = imgs.length ? (imgs[0].mediaType || 'image/jpeg') : (window._deliveryMediaType || 'image/jpeg');
   var btn = document.getElementById('delivery-analyse-btn');
   var status = document.getElementById('delivery-analysis-status');
-  if (!imgs.length && !imgBase64) { if (status) { status.textContent = '⚠ No screenshots uploaded'; status.style.color='var(--red)'; } return; }
+  if (!imgs.length && !imgBase64) { if (status) { status.textContent = '\u26a0 No screenshots uploaded'; status.style.color='var(--red)'; } return; }
 
-  if (btn) { btn.textContent = '⏳ Analysing deliveries...'; btn.disabled = true; }
-  if (status) { status.textContent = 'Reading delivery list...'; status.style.color = 'var(--muted)'; }
+  if (btn) { btn.textContent = '\u23f3 Analysing...'; btn.disabled = true; }
 
+  var allImgs = imgs.length ? imgs : [{ base64: imgBase64, mediaType: mediaType }];
   var siteAddr = (window.SITE_ADDRESSES && currentSite) ? (window.SITE_ADDRESSES[currentSite] || '') : '';
+  var prompt = 'This is one page of an Orderlord delivery list. Extract EVERY delivery visible on THIS page only. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"driver": "Jason Hyde", "address": "14 High Street, Bridport", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each row: driver = courier name exactly as shown, address = full delivery address, miles = estimated distance from restaurant at ' + siteAddr + ', payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash payment). No markdown, no explanation, just JSON.';
+
+  if (status) { status.textContent = 'Analysing ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + ' in parallel...'; status.style.color = 'var(--muted)'; }
+
+  // Send ONE image per request in parallel — avoids body size limit
+  var fetchPromises = allImgs.map(function(img, idx) {
+    return fetch('/.netlify/functions/ai-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.base64 } },
+          { type: 'text', text: prompt }
+        ]}]
+      })
+    })
+    .then(function(r) {
+      if (!r.ok) { console.warn('Delivery img ' + idx + ' HTTP ' + r.status); return []; }
+      return r.json();
+    })
+    .then(function(data) {
+      if (!data || data.error) { console.warn('Delivery img ' + idx + ' error:', data); return []; }
+      var txt = (data.content && data.content[0]) ? data.content[0].text || '' : '';
+      var jsonObjs = [], depth = 0, start = -1;
+      for (var ci = 0; ci < txt.length; ci++) {
+        if (txt[ci] === '{') { if (depth === 0) start = ci; depth++; }
+        else if (txt[ci] === '}') { depth--; if (depth === 0 && start >= 0) { jsonObjs.push(txt.substring(start, ci+1)); start = -1; } }
+      }
+      for (var ji = jsonObjs.length - 1; ji >= 0; ji--) {
+        try { var p = JSON.parse(jsonObjs[ji]); if (p.deliveries) return p.deliveries; } catch(e) {}
+      }
+      return [];
+    })
+    .catch(function(e) { console.warn('Delivery img ' + idx + ' fetch err:', e); return []; });
+  });
 
   try {
-    var resp = await fetch('/.netlify/functions/ai-proxy', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
-        messages: [{ role: 'user', content: (function() {
-          var allImgs = (window._deliveryImages && window._deliveryImages.length) ? window._deliveryImages : [{ base64: imgBase64, mediaType: mediaType }];
-          var parts = [];
-          allImgs.forEach(function(img) {
-            parts.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.base64 } });
-          });
-          parts.push({ type: 'text', text: 'These are ' + allImgs.length + ' page(s) of an Orderlord delivery list. Extract EVERY delivery from ALL pages. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"driver": "Jason Hyde", "address": "14 High Street, Bridport", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each delivery: driver = courier name exactly as shown, address = full delivery address, miles = estimated distance from restaurant at ' + siteAddr + ', payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash). Combine ALL deliveries from all pages. No markdown, no explanation, just JSON.' });
-          return parts;
-        })() }]
-      })
+    var results = await Promise.all(fetchPromises);
+    var allDeliveries = [];
+    results.forEach(function(r) { allDeliveries = allDeliveries.concat(r || []); });
+
+    // Deduplicate by customer+driver combo
+    var seen = {};
+    var deliveries = allDeliveries.filter(function(d) {
+      var key = ((d.driver||'') + '|' + (d.address||'')).toLowerCase().trim();
+      if (!key || key === '|') return false;
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
     });
-    var data = await resp.json();
-    var txt = (data.content && data.content[0]) ? data.content[0].text : '';
-    var jsonObjs = [], depth = 0, startIdx = -1;
-    for (var ci = 0; ci < txt.length; ci++) {
-      if (txt[ci] === '{') { if (depth===0) startIdx=ci; depth++; }
-      else if (txt[ci] === '}') { depth--; if (depth===0 && startIdx>=0) { jsonObjs.push(txt.substring(startIdx,ci+1)); startIdx=-1; } }
-    }
-    var parsed = null;
-    for (var j = jsonObjs.length-1; j>=0; j--) {
-      try { var t = JSON.parse(jsonObjs[j]); if (t.deliveries) { parsed=t; break; } } catch(ex) {}
-    }
-    if (parsed && parsed.deliveries && parsed.deliveries.length > 0) {
-      populateDriversFromScreenshot(parsed.deliveries);
-      if (status) { status.textContent = '✓ Found ' + parsed.deliveries.length + ' deliveries — drivers and fuel calculated below. Also running late order check...'; status.style.color = 'var(--green-acc)'; }
-      // Also use this same image for late orders analysis
-      window._lateImages = [{ base64: imgBase64, mediaType: mediaType }];
-      var lateBtn = document.getElementById('late-analyse-btn');
+
+    if (deliveries.length > 0) {
+      populateDriversFromScreenshot(deliveries);
+      if (status) { status.textContent = '\u2713 Found ' + deliveries.length + ' deliveries across ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + ' — drivers and fuel calculated below.'; status.style.color = 'var(--green-acc)'; }
+      window._lateImages = allImgs.slice(0, 2); // use first 2 pages for late orders
       var lateBtnWrap = document.getElementById('late-analyse-btn-wrap');
       if (lateBtnWrap) lateBtnWrap.style.display = 'block';
-      // Auto-trigger late orders analysis
       setTimeout(function() { analyseLateImage(); }, 500);
     } else {
-      if (status) { status.textContent = '⚠ Could not read deliveries — add drivers manually below'; status.style.color = 'var(--red)'; }
+      if (status) { status.textContent = '\u26a0 Could not read deliveries — add drivers manually below'; status.style.color = 'var(--red)'; }
     }
   } catch(err) {
-    if (status) { status.textContent = '⚠ Error: ' + err.message; status.style.color = 'var(--red)'; }
+    if (status) { status.textContent = '\u26a0 Error: ' + err.message; status.style.color = 'var(--red)'; }
   }
-  if (btn) { btn.textContent = '✓ Analysed — Re-analyse'; btn.disabled = false; }
+
+  if (btn) { btn.textContent = '\u2713 Analysed \u2014 Re-analyse'; btn.disabled = false; }
   window._deliveryAnalysed = true;
 }
 
