@@ -3125,8 +3125,43 @@ function submitReport() {
   // Validate dext/whatsapp on delivery days
   var dextWrap = document.getElementById('dext-wrap');
   if (dextWrap && dextWrap.style.display !== 'none' && !window._dextValue) {
-    alert('⚠ Please confirm whether the supplier invoice was uploaded to WhatsApp.');
+    alert('\u26a0 Delivery day — please confirm whether the supplier invoice was uploaded to WhatsApp before submitting.');
     dextWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    dextWrap.style.border = '1.5px solid var(--red)';
+    setTimeout(function(){ dextWrap.style.border = ''; }, 3000);
+    return;
+  }
+
+  // Validate supplier invoice (dext) — warn but don't block if not a delivery day
+  // Already handled above — only on delivery days
+
+  // Validate cash received — flag any driver with cash orders not confirmed
+  var cashMissingDrivers = [];
+  document.querySelectorAll('#driver-list .ai-driver-row').forEach(function(row) {
+    var cashBtn = row.querySelector('.cash-received-btn');
+    if (cashBtn && cashBtn.dataset.cashReceived !== 'true') {
+      // Has a cash banner but not confirmed
+      var cashBanner = row.querySelector('[style*="border:1.5px solid var(--gold)"]');
+      if (cashBanner) {
+        var driverName = row.dataset.driverName || 'Unknown driver';
+        var cashAmts = row.querySelectorAll('.cash-order-amount');
+        var total = 0;
+        cashAmts.forEach(function(el){ total += parseFloat(el.dataset.amount || 0); });
+        if (total > 0) cashMissingDrivers.push({ name: driverName, total: total });
+      }
+    }
+  });
+  if (cashMissingDrivers.length > 0) {
+    var msg = '⚠ Cash payment not confirmed for:
+
+';
+    cashMissingDrivers.forEach(function(d){ msg += '• ' + d.name + ' — £' + d.total.toFixed(2) + '
+'; });
+    msg += '
+Have you received this cash? Please tap "Cash received?" on each driver before submitting.';
+    alert(msg);
+    var firstCashBanner = document.querySelector('.cash-received-btn');
+    if (firstCashBanner) firstCashBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
 
