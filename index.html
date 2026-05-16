@@ -512,12 +512,6 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
       <!-- STOCK TO ORDER -->
       <div class="section-title">Stock to Order</div>
-      <div class="field-row">
-        <div class="field">
-          <label>Shopping Total (£)</label>
-          <input type="text" id="f-shopping-total" placeholder="£0.00" oninput="formatCurrency(this)">
-        </div>
-      </div>
       <div class="field">
         <label>Items needed</label>
         <textarea id="f-stock" placeholder="e.g. Chicken x4 trays, lamb mince, naan bread, poppadoms..."></textarea>
@@ -863,7 +857,7 @@ function populateDriversFromScreenshot(deliveriesFlat) {
     wageInp.style.cssText = 'background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;';
 
     var paidBtn = document.createElement('button');
-    paidBtn.type = 'button'; paidBtn.textContent = 'Paid?';
+    paidBtn.type = 'button'; paidBtn.textContent = 'Fuel Paid?';
     paidBtn.dataset.paid = 'false';
     paidBtn.style.cssText = 'padding:10px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--serif);font-size:10px;letter-spacing:.06em;text-transform:uppercase;touch-action:manipulation;white-space:nowrap;';
     paidBtn.onclick = function() {
@@ -876,7 +870,7 @@ function populateDriversFromScreenshot(deliveriesFlat) {
     };
 
     var wageBtn = document.createElement('button');
-    wageBtn.type = 'button'; wageBtn.textContent = 'Wage';
+    wageBtn.type = 'button'; wageBtn.textContent = 'Wage Paid?';
     wageBtn.dataset.wagePaid = 'false';
     wageBtn.style.cssText = 'padding:10px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--serif);font-size:10px;letter-spacing:.06em;text-transform:uppercase;touch-action:manipulation;white-space:nowrap;';
     wageBtn.onclick = function() {
