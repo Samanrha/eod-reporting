@@ -1852,6 +1852,9 @@ function populateReportData(d, selectedDate) {
   } else {
     document.getElementById('check-payment-section').style.display = 'none';
   }
+
+  // If PS was already analysed, refresh the match now Orderlord data is available
+  refreshPsMatchIfNeeded();
 }
 
 // -- CHECK PAYMENT ORDERS ------------------------------------------
@@ -1965,15 +1968,26 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
   const psTotal = parseFloat(d.total || 0);
   document.getElementById('ps-total-extracted').textContent = '£' + psTotal.toFixed(2);
   document.getElementById('ps-date-extracted').textContent = d.transaction_date || '—';
-  document.getElementById('ps-orderlord-amount').textContent = psOrderlordAmt > 0 ? '£' + psOrderlordAmt.toFixed(2) : 'Not extracted';
+
+  // Always try to get Orderlord PS amount from extractedReportData if not passed in
+  var olAmt = psOrderlordAmt;
+  if (!olAmt && extractedReportData && extractedReportData.paymentsense_online_amount) {
+    olAmt = parseFloat(extractedReportData.paymentsense_online_amount || 0);
+  }
+  // Also check bar card — some sites use bar card machine as the PS amount
+  if (!olAmt && extractedReportData && extractedReportData.orderlord_bar_card) {
+    olAmt = parseFloat(extractedReportData.orderlord_bar_card || 0);
+  }
+  document.getElementById('ps-orderlord-amount').textContent = olAmt > 0 ? '£' + olAmt.toFixed(2) : 'Not extracted';
 
   // Date check
   const dateErrEl = document.getElementById('ps-date-error');
   if (d.transaction_date && selectedDate) {
     const sel = new Date(selectedDate);
-    const selStr = `${String(sel.getDate()).padStart(2,'0')}/${String(sel.getMonth()+1).padStart(2,'0')}/${sel.getFullYear()}`;
-    if (d.transaction_date !== selStr) {
-      dateErrEl.textContent = `⚠ Date mismatch — selected: ${selStr}, screenshot: ${d.transaction_date}. Please re-upload the correct screenshot.`;
+    const selStr = String(sel.getDate()).padStart(2,'0') + '/' + String(sel.getMonth()+1).padStart(2,'0') + '/' + sel.getFullYear();
+    var normReport = (d.transaction_date || '').replace(/[.\-]/g,'/');
+    if (normReport && normReport !== selStr) {
+      dateErrEl.textContent = '\u26a0 Date mismatch \u2014 EOD date: ' + selStr + ', PS screenshot: ' + d.transaction_date + '. Please check you have the right screenshot.';
       dateErrEl.style.display = 'block';
     } else {
       dateErrEl.style.display = 'none';
@@ -1982,27 +1996,43 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
 
   // Amount match
   const matchEl = document.getElementById('ps-match-status');
-  const orderlordAmtEl = document.getElementById('ps-orderlord-amount');
-  if (psOrderlordAmt > 0 && psTotal > 0) {
-    const diff = Math.abs(psTotal - psOrderlordAmt);
+  const discrepancyField = document.getElementById('ps-discrepancy-field');
+  const discrepancyLabel = discrepancyField ? discrepancyField.querySelector('label') : null;
+
+  if (olAmt > 0 && psTotal > 0) {
+    const diff = Math.abs(psTotal - olAmt);
     if (diff < 0.01) {
-      matchEl.textContent = '✓ Match';
+      matchEl.textContent = '\u2713 Match \u2014 PS total matches Orderlord';
       matchEl.style.color = 'var(--green-acc)';
       matchEl.style.fontWeight = '700';
-      document.getElementById('ps-discrepancy-field').style.display = 'none';
+      if (discrepancyField) discrepancyField.style.display = 'none';
     } else {
-      matchEl.textContent = `⚠ Mismatch — differs by £${diff.toFixed(2)}`;
+      const higher = psTotal > olAmt ? 'PS' : 'Orderlord';
+      const lower = psTotal > olAmt ? 'Orderlord' : 'PS';
+      matchEl.textContent = '\u26a0 Mismatch \u2014 \u00a3' + diff.toFixed(2) + ' difference (' + higher + ' is higher)';
       matchEl.style.color = 'var(--red)';
       matchEl.style.fontWeight = '700';
-      document.getElementById('ps-discrepancy-field').style.display = 'block';
+      if (discrepancyField) discrepancyField.style.display = 'block';
+      if (discrepancyLabel) discrepancyLabel.textContent = '\u26a0 PS total \u00a3' + psTotal.toFixed(2) + ' vs Orderlord \u00a3' + olAmt.toFixed(2) + ' (\u00a3' + diff.toFixed(2) + ' difference) \u2014 explain below';
     }
-  } else if (psTotal > 0 && psOrderlordAmt === 0) {
-    matchEl.textContent = 'Run Orderlord analysis first';
+  } else if (psTotal > 0 && olAmt === 0) {
+    matchEl.textContent = '\u26a0 Run Orderlord analysis first to compare';
     matchEl.style.color = 'var(--amber)';
     matchEl.style.fontWeight = '400';
+    if (discrepancyField) discrepancyField.style.display = 'none';
   } else {
-    matchEl.textContent = '—';
+    matchEl.textContent = '\u2014';
     matchEl.style.color = 'var(--muted)';
+    if (discrepancyField) discrepancyField.style.display = 'none';
+  }
+}
+
+// Re-run PS match if Orderlord data arrives after PS was already analysed
+function refreshPsMatchIfNeeded() {
+  if (extractedPsData && extractedPsData.total && extractedReportData && extractedReportData.expected_turnover) {
+    var selectedDate = document.getElementById('f-date') ? document.getElementById('f-date').value : '';
+    var olAmt = parseFloat(extractedReportData.paymentsense_online_amount || extractedReportData.orderlord_bar_card || 0);
+    populatePsData(extractedPsData, selectedDate, olAmt);
   }
 }
 // -- PINS — change these to your preferred codes ------------------
