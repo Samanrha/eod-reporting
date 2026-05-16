@@ -11,8 +11,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>The Sundorbon — End of Day Report</title>
-<!-- v20260515-14 -->
-<!-- v20260515-14 -->
+<!-- v20260516-15 -->
 <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -1018,9 +1017,9 @@ function setDext(val) {
 }
 
 var CK_ITEMS = {
-  bridport:   ['Lamb Tray','Chicken Tray','Tomato Puri Bucket','Tomato Gravy Bucket','Makhani Bucket','Korma Bucket','Masala Bucket'],
-  dorchester: ['Lamb Tray','Chicken Tray','Tomato Puri Bucket','Tomato Gravy Bucket','Makhani Bucket','Korma Bucket','Masala Bucket'],
-  rivaaz:     ['Lamb Tray','Tomato Puri Bucket','Tomato Gravy Bucket','Makhani Bucket','Korma Bucket','Masala Bucket']
+  bridport:   ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala'],
+  dorchester: ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala'],
+  rivaaz:     ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala']
 };
 
 // Bridport & Dorchester: Sun + Thu | Lymington: Mon + Thu
@@ -1073,23 +1072,25 @@ function buildCkStockSection(site) {
     label.style.cssText = 'font-size:13px;color:var(--text);';
     label.textContent = item;
 
-    var inp = document.createElement('input');
-    inp.type = 'text';
-    inp.inputMode = 'decimal';
-    inp.placeholder = '0';
-    inp.dataset.item = item;
-    inp.style.cssText = 'width:80px;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;text-align:center;outline:none;';
+    var ckSizes = ['2.5kg','5kg','10kg','15kg','20kg','30kg','40kg','50kg'];
+    var ckSel = document.createElement('select');
+    ckSel.dataset.item = item;
+    ckSel.style.cssText = 'background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;outline:none;-webkit-appearance:none;min-width:110px;';
+    var ckBlank = document.createElement('option');
+    ckBlank.value = ''; ckBlank.textContent = '— qty —'; ckBlank.disabled = true; ckBlank.selected = true;
+    ckSel.appendChild(ckBlank);
+    ckSizes.forEach(function(sz) { var o = document.createElement('option'); o.value = sz; o.textContent = sz; ckSel.appendChild(o); });
 
     row.appendChild(label);
-    row.appendChild(inp);
+    row.appendChild(ckSel);
     list.appendChild(row);
   });
 }
 
 function getCkStockData() {
   var result = {};
-  document.querySelectorAll('#ck-stock-list input').forEach(function(inp) {
-    if (inp.value.trim()) result[inp.dataset.item] = inp.value.trim();
+  document.querySelectorAll('#ck-stock-list select').forEach(function(inp) {
+    if (inp.value) result[inp.dataset.item] = inp.value;
   });
   result.dextUploaded = window._dextValue || '';
   return result;
@@ -2906,6 +2907,47 @@ function submitReport() {
     alert('⚠ Please confirm whether the supplier invoice was uploaded to WhatsApp.');
     dextWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
+  }
+
+  // Validate delivery screenshot — mandatory for all sites
+  var delivImgs = window._deliveryImages || [];
+  if (!delivImgs.length && !window._deliveryImageBase64) {
+    alert('⚠ Please upload the Orderlord Delivery List screenshot before submitting.');
+    var dArea = document.getElementById('delivery-upload-area');
+    if (dArea) { dArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); dArea.style.borderColor = 'var(--red)'; setTimeout(function(){ dArea.style.borderColor = ''; }, 3000); }
+    return;
+  }
+
+  // Validate Paymentsense screenshot — mandatory for Bridport and Rivaaz
+  if (currentSite !== 'dorchester') {
+    if (!psImageBase64 && !window._psImageBase64) {
+      alert('⚠ Please upload the Paymentsense Transaction History screenshot before submitting.');
+      var pArea = document.getElementById('ps-upload-area');
+      if (pArea) { pArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); pArea.style.borderColor = 'var(--red)'; setTimeout(function(){ pArea.style.borderColor = ''; }, 3000); }
+      return;
+    }
+  }
+
+  // Validate cash location — mandatory when cash > 0
+  var cashAmt = parseCurrency(document.getElementById('f-cash').value);
+  if (cashAmt > 0) {
+    var locEl = document.getElementById('f-takings-location');
+    if (!locEl || !locEl.value) {
+      alert('⚠ Please select where the cash takings are kept before submitting.');
+      var locSec = document.getElementById('takings-location-section');
+      if (locSec) locSec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (locEl) locEl.style.borderColor = 'var(--red)';
+      return;
+    }
+    if (locEl) locEl.style.borderColor = '';
+    if (locEl.value === 'given') {
+      var givenToEl = document.getElementById('f-given-to');
+      if (!givenToEl || !givenToEl.value.trim()) {
+        alert('⚠ Please enter who the cash was given to before submitting.');
+        if (givenToEl) givenToEl.focus();
+        return;
+      }
+    }
   }
 
   // Block submission if duplicate date
