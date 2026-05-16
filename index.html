@@ -2172,7 +2172,7 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
     window._psMissingPayment = false;
   }
 
-  // Amount match
+  // Amount match — covers all combinations including PS=0 with OL amount
   const matchEl = document.getElementById('ps-match-status');
   const discrepancyField = document.getElementById('ps-discrepancy-field');
   const discrepancyLabel = discrepancyField ? discrepancyField.querySelector('label') : null;
@@ -2186,13 +2186,19 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
       if (discrepancyField) discrepancyField.style.display = 'none';
     } else {
       const higher = psTotal > olAmt ? 'PS' : 'Orderlord';
-      const lower = psTotal > olAmt ? 'Orderlord' : 'PS';
       matchEl.textContent = '\u26a0 Mismatch \u2014 \u00a3' + diff.toFixed(2) + ' difference (' + higher + ' is higher)';
       matchEl.style.color = 'var(--red)';
       matchEl.style.fontWeight = '700';
       if (discrepancyField) discrepancyField.style.display = 'block';
       if (discrepancyLabel) discrepancyLabel.textContent = '\u26a0 PS total \u00a3' + psTotal.toFixed(2) + ' vs Orderlord \u00a3' + olAmt.toFixed(2) + ' (\u00a3' + diff.toFixed(2) + ' difference) \u2014 explain below';
     }
+  } else if (psTotal === 0 && olAmt > 0) {
+    // PS received nothing but Orderlord expected a payment — missing payment
+    matchEl.textContent = '\u26a0 Missing \u2014 PS received \u00a30.00 but Orderlord expected \u00a3' + olAmt.toFixed(2);
+    matchEl.style.color = 'var(--red)';
+    matchEl.style.fontWeight = '700';
+    if (discrepancyField) discrepancyField.style.display = 'block';
+    if (discrepancyLabel) discrepancyLabel.textContent = '\u26a0 Paymentsense received \u00a30.00 — Orderlord expected \u00a3' + olAmt.toFixed(2) + ' (\u00a3' + olAmt.toFixed(2) + ' unaccounted) \u2014 explain below';
   } else if (psTotal > 0 && olAmt === 0) {
     matchEl.textContent = '\u26a0 Run Orderlord analysis first to compare';
     matchEl.style.color = 'var(--amber)';
