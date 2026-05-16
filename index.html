@@ -3128,13 +3128,9 @@ function submitReport() {
     }
   });
   if (cashMissingDrivers.length > 0) {
-    var msg = '⚠ Cash payment not confirmed for:
-
-';
-    cashMissingDrivers.forEach(function(d){ msg += '• ' + d.name + ' — £' + d.total.toFixed(2) + '
-'; });
-    msg += '
-Have you received this cash? Please tap "Cash received?" on each driver before submitting.';
+    var msg = '\u26a0 Cash payment not confirmed for:\n\n';
+    cashMissingDrivers.forEach(function(d){ msg += '\u2022 ' + d.name + ' \u2014 \u00a3' + d.total.toFixed(2) + '\n'; });
+    msg += '\nHave you received this cash? Please tap "Cash received?" on each driver before submitting.';
     alert(msg);
     var firstCashBanner = document.querySelector('.cash-received-btn');
     if (firstCashBanner) firstCashBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
