@@ -538,6 +538,13 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
         </div>
       </div>
 
+      <!-- DRINKS ORDER (Rivaaz — Sat & Tue only) -->
+      <div id="drinks-order-section" style="display:none;">
+        <div class="section-title">Drinks Order</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter quantity needed for each item — leave blank if not needed</div>
+        <div id="drinks-order-list"></div>
+      </div>
+
       <!-- WASTAGE -->
       <div class="section-title">Wastage</div>
       <div class="field">
@@ -1093,6 +1100,58 @@ function getCkStockData() {
     if (inp.value) result[inp.dataset.item] = inp.value;
   });
   result.dextUploaded = window._dextValue || '';
+  return result;
+}
+
+function buildDrinksOrderSection(site, dateValue) {
+  var section = document.getElementById('drinks-order-section');
+  var list = document.getElementById('drinks-order-list');
+  if (!section || !list) return;
+
+  // Only show for Rivaaz on Saturdays (6) and Tuesdays (2)
+  var DRINKS_DAYS = [2, 6]; // Tue, Sat
+  var selectedDate = dateValue ? new Date(dateValue) : new Date();
+  var day = selectedDate.getDay();
+  var show = (site === 'rivaaz') && DRINKS_DAYS.includes(day);
+  section.style.display = show ? 'block' : 'none';
+  if (!show) return;
+
+  list.innerHTML = '';
+  var DRINKS_ITEMS = ['Cobra 620ml (12)', 'Cobra 330ml (12)', 'Kingfisher 650ml (12)', 'Kingfisher 330ml (24)', 'Heineken Zero 330ml (24)', 'Managers 568ml (12)', 'IPA 330ml (12)', 'Corona 660ml (12)', 'Coke 330ml (24)', 'Diet Coke 330ml (24)', 'Soda 200ml (24)', 'Lemonade 200ml (24)', 'Coke 200ml (24)', 'Diet Coke 200ml (24)', 'Tonic Full 150ml (24)', 'Slimline Tonic 150ml (24)', 'Coke 1.5L (6)', 'Diet Coke 1.5L (6)', 'Lemonade 1.5L (12)', 'Soda 1L (6)', 'Still Water 750ml (12)', 'Sparkling Water 750ml (12)'];
+
+  // Split into two columns
+  var grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;';
+
+  DRINKS_ITEMS.forEach(function(item) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,185,106,.1);';
+
+    var lbl = document.createElement('label');
+    lbl.style.cssText = 'font-size:13px;color:var(--text);';
+    lbl.textContent = item;
+
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.inputMode = 'numeric';
+    inp.placeholder = '0';
+    inp.dataset.item = item;
+    inp.style.cssText = 'width:64px;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:8px 10px;color:var(--gold);font-family:var(--sans);font-size:14px;font-weight:700;text-align:center;outline:none;';
+
+    row.appendChild(lbl);
+    row.appendChild(inp);
+    grid.appendChild(row);
+  });
+
+  list.appendChild(grid);
+}
+
+function getDrinksOrderData() {
+  var result = [];
+  document.querySelectorAll('#drinks-order-list input').forEach(function(inp) {
+    var val = inp.value.trim();
+    if (val && val !== '0') result.push({ item: inp.dataset.item, qty: val });
+  });
   return result;
 }
 
@@ -2291,11 +2350,13 @@ function selectSite(site) {
   // Build date dropdown and set float
   buildDateDropdown();
   buildCkStockSection(site);
+  var _dateVal = document.getElementById('f-date') ? document.getElementById('f-date').value : '';
+  buildDrinksOrderSection(site, _dateVal);
   // Re-check delivery day when date changes
   var dateDropdown = document.getElementById('f-date');
   if (dateDropdown && !dateDropdown._ckListener) {
     dateDropdown._ckListener = true;
-    dateDropdown.addEventListener('change', function() { buildCkStockSection(currentSite); });
+    dateDropdown.addEventListener('change', function() { buildCkStockSection(currentSite); buildDrinksOrderSection(currentSite, this.value); });
   }
   setFloatForSite(site);
 
@@ -3131,6 +3192,8 @@ function submitReport() {
       refunds: getRefundsData(),
       staffErrors: getStaffErrors(),
       ckStock: getCkStockData(),
+      drinksOrder: getDrinksOrderData(),
+    drinksOrder: getDrinksOrderData(),
       issues: getListValues('issue-list', 'textarea'),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders,
@@ -3207,6 +3270,8 @@ function resetForm() {
   extractedPsData = {};
   checkPaymentOrders = [];
   window._deliveryAnalysed = false;
+  var drinksSection = document.getElementById('drinks-order-section');
+  if (drinksSection) drinksSection.style.display = 'none';
   // Hide New Report button, keep View Reports visible, return to login screen
   document.getElementById('nav-new-report').style.display = 'none';
   document.getElementById('login-overlay').classList.remove('hidden');
@@ -3367,6 +3432,9 @@ function openReport(idx) {
   }
   if (r.deposits?.length) {
     html += `<div class="modal-section"><h4>Table Deposits</h4>${r.deposits.map(d => `<div class="modal-row"><span class="key">${d.booking}</span><span class="val">${d.type}</span></div>`).join('')}</div>`;
+  }
+  if (r.drinksOrder?.length) {
+    html += '<div class="modal-section"><h4>Drinks Order</h4>' + r.drinksOrder.map(function(d){ return '<div class="modal-row"><span class="key">' + d.item + '</span><span class="val">' + d.qty + '</span></div>'; }).join('') + '</div>';
   }
   if (r.issues?.filter(Boolean).length) {
     html += `<div class="modal-section"><h4>Issues & Feedback</h4>${r.issues.filter(Boolean).map((iss, i) => `<div class="modal-row"><span class="key">${i+1}.</span><span class="val">${iss}</span></div>`).join('')}</div>`;
