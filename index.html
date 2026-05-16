@@ -657,49 +657,7 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
 <script>
 
-// -- LOGIN/NAV BRIDGE --
-function selectLocation(site) {
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  var btn = document.getElementById('loc-' + site);
-  if (btn) btn.classList.add('selected');
-  var pinBox = document.getElementById('login-pin-box');
-  if (pinBox) pinBox.style.display = 'block';
-  var title = document.getElementById('login-pin-title');
-  if (title) title.textContent = 'Enter PIN — ' + site.charAt(0).toUpperCase() + site.slice(1);
-  var inp = document.getElementById('login-pin-input');
-  if (inp) { inp.value = ''; inp.focus(); }
-  var err = document.getElementById('login-pin-error');
-  if (err) err.textContent = '';
-  window._pendingSite = site;
-}
-function clearLocationSelection() {
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  var pinBox = document.getElementById('login-pin-box');
-  if (pinBox) pinBox.style.display = 'none';
-  window._pendingSite = null;
-}
-function checkLocationPin() {
-  var pins = { bridport: '2001', dorchester: '2002', rivaaz: '2003' };
-  var inp = document.getElementById('login-pin-input');
-  var val = inp ? inp.value : '';
-  var site = window._pendingSite;
-  if (!site) return;
-  if (val === pins[site]) {
-    var overlay = document.getElementById('login-overlay');
-    if (overlay) overlay.classList.add('hidden');
-    selectSite(site);
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    var formView = document.getElementById('view-form');
-    if (formView) formView.classList.add('active');
-    var navNew = document.getElementById('nav-new-report');
-    if (navNew) navNew.style.display = 'inline-flex';
-    var lbl = document.getElementById('form-site-label');
-    if (lbl) lbl.textContent = site.charAt(0).toUpperCase() + site.slice(1);
-  } else if (val.length === 4) {
-    var err = document.getElementById('login-pin-error');
-    if (err) err.textContent = 'Incorrect PIN — try again';
-  }
-}
+// -- LOGIN/NAV BRIDGE (main functions defined later in script) --
 function requestDashboard() {
   var overlay = document.getElementById('dash-pin-overlay');
   if (overlay) overlay.classList.add('open');
@@ -2252,14 +2210,20 @@ function goToNewReport() {
 function selectLocation(loc) {
   selectedLocation = loc;
   document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  document.getElementById('loc-' + loc).classList.add('selected');
-  const labels = { bridport: 'Bridport', dorchester: 'Dorchester', rivaaz: 'Rivaaz Lymington' };
-  document.getElementById('login-pin-title').textContent = labels[loc];
-  document.getElementById('login-pin-sub').textContent = 'Enter your PIN to continue';
-  document.getElementById('login-pin-box').style.display = 'block';
-  document.getElementById('login-pin-input').value = '';
-  document.getElementById('login-pin-error').textContent = '';
-  setTimeout(() => document.getElementById('login-pin-input').focus(), 100);
+  var locBtn = document.getElementById('loc-' + loc);
+  if (locBtn) locBtn.classList.add('selected');
+  var labels = { bridport: 'Bridport', dorchester: 'Dorchester', rivaaz: 'Rivaaz Lymington' };
+  var titleEl = document.getElementById('login-pin-title');
+  if (titleEl) titleEl.textContent = labels[loc];
+  var subEl = document.getElementById('login-pin-sub');
+  if (subEl) subEl.textContent = 'Enter your PIN to continue';
+  var pinBox = document.getElementById('login-pin-box');
+  if (pinBox) pinBox.style.display = 'block';
+  var pinInp = document.getElementById('login-pin-input');
+  if (pinInp) pinInp.value = '';
+  var pinErr = document.getElementById('login-pin-error');
+  if (pinErr) pinErr.textContent = '';
+  setTimeout(function() { var p = document.getElementById('login-pin-input'); if (p) p.focus(); }, 100);
 }
 
 function clearLocationSelection() {
