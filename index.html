@@ -739,8 +739,13 @@ function populateDriversFromScreenshot(deliveriesFlat) {
   (deliveriesFlat || []).forEach(function(d) {
     var key = (d.driver || '').toLowerCase().trim();
     if (!key || key === 'driver name') return;
-    if (!driversMap[key]) driversMap[key] = { name: d.driver, deliveries: [] };
-    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0 });
+    if (!driversMap[key]) driversMap[key] = { name: d.driver, deliveries: [], cashOrders: [] };
+    var isCash = (d.payment || '').toLowerCase().trim() === 'cash';
+    var cashAmt = parseFloat(d.cash_amount) || 0;
+    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt });
+    if (isCash && cashAmt > 0) {
+      driversMap[key].cashOrders.push({ address: d.address || '—', amount: cashAmt });
+    }
   });
   var driversData = Object.values(driversMap);
 
@@ -758,7 +763,7 @@ function populateDriversFromScreenshot(deliveriesFlat) {
       var miles = parseFloat(dlv.miles) || 0;
       var rate = calcFuelRate(miles);
       totalFuel += rate;
-      deliveryDetails.push(dlv.address + ' (' + miles + 'mi = £' + rate + ')');
+      var payLabel = dlv.payment ? ' [' + dlv.payment + ']' : ''; deliveryDetails.push(dlv.address + ' (' + miles + 'mi = £' + rate + ')' + payLabel);
     });
 
     // Build driver row
@@ -781,6 +786,55 @@ function populateDriversFromScreenshot(deliveriesFlat) {
     hdr.appendChild(nameEl);
     hdr.appendChild(fuelEl);
     row.appendChild(hdr);
+
+    // Cash orders alert banner
+    var cashOrders = driver.cashOrders || [];
+    if (cashOrders.length > 0) {
+      var cashTotal = cashOrders.reduce(function(s, o){ return s + o.amount; }, 0);
+
+      var cashBanner = document.createElement('div');
+      cashBanner.style.cssText = 'background:rgba(201,185,106,.15);border:1.5px solid var(--gold);border-radius:6px;padding:10px 12px;margin-bottom:8px;';
+
+      var cashTitle = document.createElement('div');
+      cashTitle.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
+
+      var cashLabel = document.createElement('div');
+      cashLabel.style.cssText = 'font-size:12px;font-weight:700;color:var(--gold);font-family:var(--serif);letter-spacing:.06em;';
+      cashLabel.textContent = '💰 CASH PAYMENT' + (cashOrders.length > 1 ? 'S' : '') + ' — £' + cashTotal.toFixed(2);
+
+      var cashReceivedBtn = document.createElement('button');
+      cashReceivedBtn.type = 'button';
+      cashReceivedBtn.textContent = 'Cash received?';
+      cashReceivedBtn.dataset.cashReceived = 'false';
+      cashReceivedBtn.className = 'cash-received-btn';
+      cashReceivedBtn.style.cssText = 'padding:6px 12px;border-radius:4px;border:1.5px solid var(--gold);background:transparent;color:var(--gold);cursor:pointer;font-family:var(--serif);font-size:10px;letter-spacing:.08em;text-transform:uppercase;touch-action:manipulation;white-space:nowrap;font-weight:700;';
+      cashReceivedBtn.onclick = function() {
+        var done = this.dataset.cashReceived === 'true';
+        this.dataset.cashReceived = done ? 'false' : 'true';
+        this.textContent = done ? 'Cash received?' : '✓ Cash received';
+        this.style.background = done ? 'transparent' : 'rgba(201,185,106,.3)';
+        this.style.color = done ? 'var(--gold)' : 'var(--gold)';
+        cashBanner.style.borderColor = done ? 'var(--gold)' : 'var(--green-acc)';
+        cashBanner.style.background = done ? 'rgba(201,185,106,.15)' : 'rgba(90,200,128,.1)';
+        cashLabel.style.color = done ? 'var(--gold)' : 'var(--green-acc)';
+        if (!done) cashLabel.textContent = '✓ CASH RECEIVED — £' + cashTotal.toFixed(2);
+        else cashLabel.textContent = '💰 CASH PAYMENT' + (cashOrders.length > 1 ? 'S' : '') + ' — £' + cashTotal.toFixed(2);
+      };
+
+      cashTitle.appendChild(cashLabel);
+      cashTitle.appendChild(cashReceivedBtn);
+      cashBanner.appendChild(cashTitle);
+
+      // List each cash order
+      cashOrders.forEach(function(co, idx) {
+        var item = document.createElement('div');
+        item.style.cssText = 'font-size:11px;color:var(--text);padding:2px 0;border-top:' + (idx > 0 ? '1px solid rgba(201,185,106,.2)' : 'none') + ';';
+        item.className = 'cash-order-amount'; item.dataset.amount = co.amount; item.textContent = (idx+1) + '. £' + co.amount.toFixed(2) + ' — ' + co.address;
+        cashBanner.appendChild(item);
+      });
+
+      row.appendChild(cashBanner);
+    }
 
     // Delivery breakdown (collapsible)
     if (deliveryDetails.length > 0) {
@@ -1410,7 +1464,7 @@ async function analyseDeliveryImage() {
           allImgs.forEach(function(img) {
             parts.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.base64 } });
           });
-          parts.push({ type: 'text', text: 'These are ' + allImgs.length + ' page(s) of an Orderlord delivery list. Extract EVERY delivery from ALL pages. Return ONLY valid JSON: {"deliveries": [{"driver": "Jason Hyde", "address": "14 High Street, Bridport", "miles": 2.1}]}. Restaurant is at ' + siteAddr + '. Estimate distance if not shown. Combine ALL deliveries from all pages. No markdown, no explanation, just JSON.' });
+          parts.push({ type: 'text', text: 'These are ' + allImgs.length + ' page(s) of an Orderlord delivery list. Extract EVERY delivery from ALL pages. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"driver": "Jason Hyde", "address": "14 High Street, Bridport", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each delivery: driver = courier name exactly as shown, address = full delivery address, miles = estimated distance from restaurant at ' + siteAddr + ', payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash). Combine ALL deliveries from all pages. No markdown, no explanation, just JSON.' });
           return parts;
         })() }]
       })
@@ -2853,7 +2907,10 @@ function getDrivers() {
     var startEl=row.querySelector('.drv-start'),endEl=row.querySelector('.drv-end');
     var fuel=fuelEl?fuelEl.value.replace(/[£]/g,'').trim():'0';
     var wage=wageEl?wageEl.value.replace(/[£]/g,'').trim():'0';
-    if(name) drivers.push({name:name,fuel:fuel||'0',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():''});
+    var cashBtn=row.querySelector('[data-cash-received]');
+    var cashReceived=cashBtn?cashBtn.dataset.cashReceived==='true':null;
+    var cashTotal=0; row.querySelectorAll('.cash-order-amount').forEach(function(el){cashTotal+=parseFloat(el.dataset.amount||0);});
+    if(name) drivers.push({name:name,fuel:fuel||'0',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():'',cashReceived:cashReceived,cashTotal:cashTotal>0?cashTotal:null});
   });
   document.querySelectorAll('#driver-list .driver-row:not(.ai-driver-row)').forEach(function(row) {
     var name='';
