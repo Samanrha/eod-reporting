@@ -436,6 +436,22 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
       </div><!-- /ps-section -->
 
+      <!-- OPENING CHECKLIST — Dorchester only -->
+      <div id="opening-checklist-section" style="display:none;">
+        <div class="section-title">Opening Checklist</div>
+        <div class="toggle-row" style="margin-bottom:8px;">
+          <span class="toggle-label">Opening checklist complete?</span>
+          <div class="toggle">
+            <button type="button" id="opening-checklist-yes" onclick="setOpeningChecklist('yes')" style="touch-action:manipulation;">Yes</button>
+            <button type="button" id="opening-checklist-no" onclick="setOpeningChecklist('no')" style="touch-action:manipulation;">No</button>
+          </div>
+        </div>
+        <div id="opening-checklist-incomplete" style="display:none;margin-top:8px;">
+          <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:6px;">Tasks not completed *</label>
+          <textarea id="f-opening-checklist-notes" rows="3" placeholder="e.g. Fridge temp not checked, handwashing station not stocked..." style="width:100%;background:var(--green);border:1px solid var(--gold-dim);border-radius:5px;padding:10px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;resize:vertical;"></textarea>
+        </div>
+      </div>
+
       <!-- DRIVERS -->
       <div id="drivers-section">
         <div class="section-title">Drivers — Fuel & Wages</div>
@@ -1099,6 +1115,29 @@ function setPsNoTransactions(val) {
   window._psNoTransactions = val === 'yes';
   document.getElementById('ps-no-tx-yes').className = val === 'yes' ? 'yes' : '';
   document.getElementById('ps-no-tx-no').className = val === 'no' ? 'no' : '';
+}
+
+function setOpeningChecklist(val) {
+  window._openingChecklist = val;
+  document.getElementById('opening-checklist-yes').className = val === 'yes' ? 'yes' : '';
+  document.getElementById('opening-checklist-no').className = val === 'no' ? 'no' : '';
+  var incomplete = document.getElementById('opening-checklist-incomplete');
+  if (val === 'no') {
+    incomplete.style.display = 'block';
+    // Show popup prompting for details
+    setTimeout(function() {
+      var notes = document.getElementById('f-opening-checklist-notes');
+      if (notes && !notes.value.trim()) {
+        notes.focus();
+        notes.style.borderColor = 'var(--gold)';
+        setTimeout(function(){ notes.style.borderColor = ''; }, 3000);
+      }
+    }, 100);
+  } else {
+    incomplete.style.display = 'none';
+    var notes = document.getElementById('f-opening-checklist-notes');
+    if (notes) notes.value = '';
+  }
 }
 
 function setDext(val) {
@@ -2443,6 +2482,8 @@ function selectSite(site) {
   document.getElementById('covers-field') && (document.getElementById('covers-field').style.display = (currentSite === 'dorchester') ? 'none' : 'block');
   document.getElementById('cash-correct-toggle').style.display = isDorch ? 'block' : 'none';
   var isNonPS = isDorch || site === 'rivaaz';
+  var openingEl = document.getElementById('opening-checklist-section');
+  if (openingEl) openingEl.style.display = isDorch ? 'block' : 'none';
   document.getElementById('ps-section').style.display = isNonPS ? 'none' : 'block';
   // Update order/table placeholders based on site
   document.querySelectorAll('.staff-error-row input:first-of-type').forEach(function(inp) {
@@ -3195,6 +3236,24 @@ function submitReport() {
     }
   }
 
+  // Validate opening checklist — mandatory for Dorchester
+  if (currentSite === 'dorchester') {
+    if (!window._openingChecklist) {
+      alert('\u26a0 Please confirm whether the opening checklist was completed before submitting.');
+      var ocEl = document.getElementById('opening-checklist-section');
+      if (ocEl) ocEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (window._openingChecklist === 'no') {
+      var notes = document.getElementById('f-opening-checklist-notes');
+      if (!notes || !notes.value.trim()) {
+        alert('\u26a0 Please list the tasks not completed on the opening checklist before submitting.');
+        if (notes) { notes.scrollIntoView({ behavior: 'smooth', block: 'center' }); notes.focus(); }
+        return;
+      }
+    }
+  }
+
   // Validate cash location — mandatory when cash > 0
   var cashAmt = parseCurrency(document.getElementById('f-cash').value);
   if (cashAmt > 0) {
@@ -3360,6 +3419,8 @@ function submitReport() {
       deposits: getDeposits(),
       refunds: getRefundsData(),
       staffErrors: getStaffErrors(),
+      openingChecklistComplete: window._openingChecklist || '',
+      openingChecklistNotes: (function(){ var el = document.getElementById('f-opening-checklist-notes'); return el ? el.value.trim() : ''; })(),
       ckStock: getCkStockData(),
       drinksOrder: getDrinksOrderData(),
     drinksOrder: getDrinksOrderData(),
@@ -3446,6 +3507,12 @@ function resetForm() {
   extractedPsData = {};
   checkPaymentOrders = [];
   window._deliveryAnalysed = false;
+  window._openingChecklist = '';
+  var ocSection = document.getElementById('opening-checklist-section'); if (ocSection) ocSection.style.display = 'none';
+  var ocNotes = document.getElementById('f-opening-checklist-notes'); if (ocNotes) ocNotes.value = '';
+  var ocYes = document.getElementById('opening-checklist-yes'); if (ocYes) ocYes.className = '';
+  var ocNo = document.getElementById('opening-checklist-no'); if (ocNo) ocNo.className = '';
+  var ocInc = document.getElementById('opening-checklist-incomplete'); if (ocInc) ocInc.style.display = 'none';
   window._psNoTransactions = false;
   window._psMissingPayment = false;
   var noTxWrap = document.getElementById('ps-no-transactions-wrap'); if (noTxWrap) noTxWrap.style.display = 'none';
@@ -3612,6 +3679,14 @@ function openReport(idx) {
   }
   if (r.deposits?.length) {
     html += `<div class="modal-section"><h4>Table Deposits</h4>${r.deposits.map(d => `<div class="modal-row"><span class="key">${d.booking}</span><span class="val">${d.type}</span></div>`).join('')}</div>`;
+  }
+  if (r.openingChecklistComplete) {
+    var ocColor = r.openingChecklistComplete === 'yes' ? 'var(--green-acc)' : 'var(--red)';
+    var ocLabel = r.openingChecklistComplete === 'yes' ? '\u2713 Complete' : '\u26a0 Incomplete';
+    html += '<div class="modal-section"><h4>Opening Checklist</h4>';
+    html += '<div class="modal-row"><span class="key">Status</span><span class="val" style="color:'+ocColor+';font-weight:700;">'+ocLabel+'</span></div>';
+    if (r.openingChecklistNotes) html += '<div class="modal-row"><span class="key">Tasks not done</span><span class="val">'+r.openingChecklistNotes+'</span></div>';
+    html += '</div>';
   }
   if (r.drinksOrder?.length) {
     html += '<div class="modal-section"><h4>Drinks Order</h4>' + r.drinksOrder.map(function(d){ return '<div class="modal-row"><span class="key">' + d.item + '</span><span class="val">' + d.qty + '</span></div>'; }).join('') + '</div>';
