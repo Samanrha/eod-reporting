@@ -3335,7 +3335,14 @@ function submitReport() {
         return t.toFixed(2);
       })(),
       staff: getStaff(),
-      chefOff: report.chefOff,
+      chefOff: (function(){
+        if (window._noChefOff) return 'No chef off';
+        var offSel = document.getElementById('f-chef-off-select');
+        var halfSel = document.getElementById('f-chef-half-day-select');
+        var off = offSel ? Array.from(offSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value;}) : [];
+        var half = halfSel ? Array.from(halfSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value+' (half day)';}) : [];
+        return off.concat(half).join(', ') || 'No chef off';
+      })(),
       pettyItems: getPettyItems(),
       pettyTotal: (function(){
         var t = 0;
@@ -3384,7 +3391,14 @@ function submitReport() {
       cash_correct: toggleStates.cash,
       drivers: getDrivers(),
       staff: getStaff(),
-      chef_day_off: report.chefOff,
+      chef_day_off: (function(){
+        if (window._noChefOff) return 'No chef off';
+        var offSel = document.getElementById('f-chef-off-select');
+        var halfSel = document.getElementById('f-chef-half-day-select');
+        var off = offSel ? Array.from(offSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value;}) : [];
+        var half = halfSel ? Array.from(halfSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value+' (half day)';}) : [];
+        return off.concat(half).join(', ') || 'No chef off';
+      })(),
       petty_cash_items: getPettyItems(),
       petty_cash_total: (function(){ var t=0; document.querySelectorAll('#petty-list .driver-row input:last-child').forEach(function(el){ t+=parseCurrency(el.value); }); return t>0?t.toFixed(2):''; })(),
       total_fuel_money: (function(){ var t=0; document.querySelectorAll('.drv-fuel').forEach(function(el){ t+=parseCurrency(el.value); }); return t.toFixed(2); })(),
