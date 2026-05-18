@@ -438,9 +438,9 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
       <!-- OPENING CHECKLIST — Dorchester only -->
       <div id="opening-checklist-section" style="display:none;">
-        <div class="section-title">Opening Checklist</div>
-        <div class="toggle-row" style="margin-bottom:8px;">
-          <span class="toggle-label">Opening checklist complete?</span>
+        <div class="section-title">Opening Checklist <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
+        <div class="toggle-row" style="margin-bottom:8px;border:1px solid rgba(201,185,106,.3);border-radius:6px;padding:10px 12px;">
+          <span class="toggle-label">Opening checklist complete? <span style="color:var(--red);">*</span></span>
           <div class="toggle">
             <button type="button" id="opening-checklist-yes" onclick="setOpeningChecklist('yes')" style="touch-action:manipulation;">Yes</button>
             <button type="button" id="opening-checklist-no" onclick="setOpeningChecklist('no')" style="touch-action:manipulation;">No</button>
