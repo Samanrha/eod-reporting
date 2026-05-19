@@ -1038,13 +1038,11 @@ function parseCurrency(str) {
 function onCashBlur() {
   var amt = parseCurrency(document.getElementById('f-cash').value);
   var warn = document.getElementById('cash-warning');
-  if (amt > 0) {
-    // Always show takings location
-  // Always show
+  // Cash location always shown regardless of amount
   document.getElementById('takings-location-section').style.display = 'block';
+  if (amt > 0) {
     warn.style.display = amt > 300 ? 'block' : 'none';
   } else {
-    // takings location always shown
     warn.style.display = 'none';
   }
 
@@ -1180,7 +1178,7 @@ function buildCkStockSection(site) {
   var isCkDay = ckDays.includes(selectedDay);
 
   // Show Dext toggle only on delivery days
-  if (dextWrap) dextWrap.style.display = isCkDay ? 'block' : 'none';
+  if (dextWrap) dextWrap.style.display = (site === 'dorchester' || isCkDay) ? 'block' : 'none';
   // Change label based on site
   var dextLbl = document.getElementById('dext-label');
   if (dextLbl) {
@@ -2481,6 +2479,7 @@ function selectSite(site) {
   document.getElementById('deposits-section').style.display = isDorch ? 'none' : 'block';
   document.getElementById('covers-field') && (document.getElementById('covers-field').style.display = (currentSite === 'dorchester') ? 'none' : 'block');
   document.getElementById('cash-correct-toggle').style.display = isDorch ? 'block' : 'none';
+  document.getElementById('takings-location-section').style.display = 'block';
   var isNonPS = isDorch || site === 'rivaaz';
   var openingEl = document.getElementById('opening-checklist-section');
   if (openingEl) openingEl.style.display = isDorch ? 'block' : 'none';
@@ -2548,10 +2547,26 @@ function to24Hour(str) {
 
 function calcHours(start, end) {
   try {
-    var s = start.split(':'), e = end.split(':');
-    var sh = parseInt(s[0]), sm = parseInt(s[1])||0;
-    var eh = parseInt(e[0]), em = parseInt(e[1])||0;
-    var total = (eh * 60 + em) - (sh * 60 + sm);
+    function parseTime(t) {
+      if (!t) return null;
+      // Normalise: remove am/pm, replace . with :
+      var clean = t.toLowerCase().replace('am','').replace('pm', function(m, offset, str) {
+        return str.toLowerCase().includes('pm') ? '__pm' : '';
+      }).trim();
+      // handle 10.30pm style
+      var isPM = t.toLowerCase().includes('pm');
+      var isAM = t.toLowerCase().includes('am');
+      clean = t.replace(/[aApP][mM]/g,'').trim().replace('.', ':');
+      var parts = clean.split(':');
+      var h = parseInt(parts[0]) || 0;
+      var m = parseInt(parts[1]) || 0;
+      if (isPM && h < 12) h += 12;
+      if (isAM && h === 12) h = 0;
+      return h * 60 + m;
+    }
+    var sMin = parseTime(start), eMin = parseTime(end);
+    if (sMin === null || eMin === null) return '';
+    var total = eMin - sMin;
     if (total < 0) total += 24 * 60;
     return (total / 60).toFixed(2);
   } catch(e) { return ''; }
@@ -3038,7 +3053,8 @@ function getLateOrdersData() {
     var mins = inputs[1] ? inputs[1].value.trim() : (row.dataset.mins + ' mins') || '';
     var reason = row._reasonInp ? row._reasonInp.value.trim() : '';
     var happy = row.dataset.happy === 'yes' ? true : row.dataset.happy === 'no' ? false : undefined;
-    if (customer || mins) result.push({ order: customer, mins: mins, reason: reason, happy: happy });
+    var contacted = row.dataset.updated === 'yes' ? true : row.dataset.updated === 'no' ? false : undefined;
+    if (customer || mins) result.push({ order: customer, mins: mins, reason: reason, happy: happy, contacted: contacted });
   });
   // Manually added rows
   document.querySelectorAll('#late-list > div[style*="grid-template-columns:auto 1fr 1fr auto auto"]').forEach(function(row) {
@@ -3179,6 +3195,16 @@ function submitReport() {
     return;
   }
 
+  // Validate covers — mandatory for Bridport and Rivaaz
+  if (currentSite !== 'dorchester') {
+    var coversEl = document.getElementById('f-covers');
+    if (!coversEl || coversEl.value === '' || coversEl.value === null) {
+      alert('\u26a0 Please enter covers before submitting. Enter 0 if no dine-in covers.');
+      if (coversEl) { coversEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); coversEl.focus(); }
+      return;
+    }
+  }
+
   // Validate delivery screenshot — must be uploaded AND analysed
   var delivImgs = window._deliveryImages || [];
   if (!delivImgs.length && !window._deliveryImageBase64) {
@@ -3254,25 +3280,21 @@ function submitReport() {
     }
   }
 
-  // Validate cash location — mandatory when cash > 0
-  var cashAmt = parseCurrency(document.getElementById('f-cash').value);
-  if (cashAmt > 0) {
-    var locEl = document.getElementById('f-takings-location');
-    if (!locEl || !locEl.value) {
-      alert('⚠ Please select where the cash takings are kept before submitting.');
-      var locSec = document.getElementById('takings-location-section');
-      if (locSec) locSec.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      if (locEl) locEl.style.borderColor = 'var(--red)';
+  // Validate cash location — always mandatory regardless of amount
+  var locEl = document.getElementById('f-takings-location');
+  if (!locEl || !locEl.value) {
+    alert('⚠ Please select where the cash is kept before submitting.');
+    var locSec = document.getElementById('takings-location-section');
+    if (locSec) locSec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (locEl) { locEl.style.borderColor = 'var(--red)'; setTimeout(function(){ locEl.style.borderColor=''; }, 3000); }
+    return;
+  }
+  if (locEl.value === 'given') {
+    var givenToEl = document.getElementById('f-given-to');
+    if (!givenToEl || !givenToEl.value.trim()) {
+      alert('⚠ Please enter who the cash was given to before submitting.');
+      if (givenToEl) givenToEl.focus();
       return;
-    }
-    if (locEl) locEl.style.borderColor = '';
-    if (locEl.value === 'given') {
-      var givenToEl = document.getElementById('f-given-to');
-      if (!givenToEl || !givenToEl.value.trim()) {
-        alert('⚠ Please enter who the cash was given to before submitting.');
-        if (givenToEl) givenToEl.focus();
-        return;
-      }
     }
   }
 
