@@ -1178,7 +1178,8 @@ function buildCkStockSection(site) {
   var isCkDay = ckDays.includes(selectedDay);
 
   // Show Dext toggle only on delivery days
-  if (dextWrap) dextWrap.style.display = (site === 'dorchester' || isCkDay) ? 'block' : 'none';
+  // Show dext: Rivaaz = every night (daily supplier deliveries), others = CK days only
+  if (dextWrap) dextWrap.style.display = (site === 'rivaaz' || isCkDay) ? 'block' : 'none';
   // Change label based on site
   var dextLbl = document.getElementById('dext-label');
   if (dextLbl) {
