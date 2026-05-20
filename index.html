@@ -759,21 +759,73 @@ window.SITE_ADDRESSES = {
   rivaaz:     '7 St Thomas Street, Lymington, SO41 9NA'
 };
 
+// Restaurant origin addresses for distance calculation
+var SITE_ORIGINS = {
+  bridport:   '68 South Street, Bridport, DT6 3NN',
+  dorchester: '6 Cornhill, Dorchester, DT1 1BA',
+  rivaaz:     '1 High Street, Lymington, SO41 9AD'
+};
+
+// Calculate real driving distances from restaurant to each delivery address
+async function getRealDistances(addresses) {
+  if (!addresses || !addresses.length) return {};
+  var origin = SITE_ORIGINS[currentSite] || SITE_ORIGINS.bridport;
+  try {
+    var resp = await fetch('/.netlify/functions/maps-distance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin: origin, destinations: addresses })
+    });
+    var data = await resp.json();
+    if (data.error) { console.warn('Maps distance error:', data.error); return {}; }
+    var map = {};
+    (data.results || []).forEach(function(r) {
+      if (r.status === 'OK') map[r.destination] = r.miles;
+    });
+    return map;
+  } catch (e) {
+    console.warn('Maps distance fetch failed:', e);
+    return {};
+  }
+}
+
 var FUEL_RATES = [
-  { max: 3, rate: 1 },
-  { max: 6, rate: 2 },
-  { max: 9, rate: 3 },
-  { max: 12, rate: 5 }
+  { max: 3,  rate: 1 },
+  { max: 6,  rate: 2 },
+  { max: 9,  rate: 3 },
+  { max: 11, rate: 4 },
+  { max: 999, rate: 5 }
 ];
 
 function calcFuelRate(miles) {
   for (var i = 0; i < FUEL_RATES.length; i++) {
     if (miles <= FUEL_RATES[i].max) return FUEL_RATES[i].rate;
   }
-  return 5;
+  return 5; // 12+ miles
 }
 
-function populateDriversFromScreenshot(deliveriesFlat) {
+async function populateDriversFromScreenshot(deliveriesFlat) {
+  // Get all unique addresses from deliveries and fetch real distances
+  var uniqueAddresses = [];
+  (deliveriesFlat || []).forEach(function(d) {
+    if (d.address && d.address !== '—' && !uniqueAddresses.includes(d.address)) {
+      uniqueAddresses.push(d.address);
+    }
+  });
+
+  // Fetch real distances from Google Maps
+  var distanceMap = {};
+  if (uniqueAddresses.length > 0) {
+    var statusEl = document.getElementById('delivery-analysis-status');
+    if (statusEl) statusEl.textContent = 'Calculating real distances via Google Maps...';
+    distanceMap = await getRealDistances(uniqueAddresses);
+    // Replace guessed miles with real ones
+    (deliveriesFlat || []).forEach(function(d) {
+      if (d.address && distanceMap[d.address] !== undefined) {
+        d.miles = distanceMap[d.address];
+      }
+    });
+  }
   // Accept flat delivery array [{driver, address, miles}] and group by driver
   var driversMap = {};
   (deliveriesFlat || []).forEach(function(d) {
