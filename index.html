@@ -436,6 +436,30 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
       </div><!-- /ps-section -->
 
+      <!-- FRIDGE TEMPS & CHECKLISTS — all sites -->
+      <div id="fridge-checklist-section">
+        <div class="section-title">Opening/Closing Checklists &amp; Fridge Temps <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
+        <div class="toggle-row" style="margin-bottom:8px;border:1px solid rgba(201,185,106,.3);border-radius:6px;padding:10px 12px;">
+          <span class="toggle-label">Opening/Closing checklists &amp; Fridge temp logs complete? <span style="color:var(--red);">*</span></span>
+          <div class="toggle">
+            <button type="button" id="fridge-checklist-yes" onclick="setFridgeChecklist('yes')" style="touch-action:manipulation;">Yes</button>
+            <button type="button" id="fridge-checklist-no" onclick="setFridgeChecklist('no')" style="touch-action:manipulation;">No</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DRINKS STOCK — Bridport Sunday only -->
+      <div id="drinks-stock-section" style="display:none;">
+        <div class="section-title">Drinks Stock List</div>
+        <div class="toggle-row" style="margin-bottom:8px;border:1px solid rgba(201,185,106,.3);border-radius:6px;padding:10px 12px;">
+          <span class="toggle-label">Drinks stock list sent to Sam? <span style="color:var(--red);">*</span></span>
+          <div class="toggle">
+            <button type="button" id="drinks-stock-yes" onclick="setDrinksStock('yes')" style="touch-action:manipulation;">Yes</button>
+            <button type="button" id="drinks-stock-no" onclick="setDrinksStock('no')" style="touch-action:manipulation;">No</button>
+          </div>
+        </div>
+      </div>
+
       <!-- OPENING CHECKLIST — Dorchester only -->
       <div id="opening-checklist-section" style="display:none;">
         <div class="section-title">Opening Checklist <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
@@ -1167,6 +1191,22 @@ function setPsNoTransactions(val) {
   document.getElementById('ps-no-tx-no').className = val === 'no' ? 'no' : '';
 }
 
+function setFridgeChecklist(val) {
+  window._fridgeChecklist = val;
+  var yBtn = document.getElementById('fridge-checklist-yes');
+  var nBtn = document.getElementById('fridge-checklist-no');
+  if (yBtn) yBtn.className = val === 'yes' ? 'yes' : '';
+  if (nBtn) nBtn.className = val === 'no' ? 'no' : '';
+}
+
+function setDrinksStock(val) {
+  window._drinksStock = val;
+  var yBtn = document.getElementById('drinks-stock-yes');
+  var nBtn = document.getElementById('drinks-stock-no');
+  if (yBtn) yBtn.className = val === 'yes' ? 'yes' : '';
+  if (nBtn) nBtn.className = val === 'no' ? 'no' : '';
+}
+
 function setOpeningChecklist(val) {
   window._openingChecklist = val;
   document.getElementById('opening-checklist-yes').className = val === 'yes' ? 'yes' : '';
@@ -1204,9 +1244,9 @@ var CK_ITEMS = {
 
 // Bridport & Dorchester: Sun + Thu | Lymington: Mon + Thu
 var CK_DAYS = {
-  bridport:   [0, 2, 4],    // Sun, Tue, Thu
-  dorchester: [1, 4, 5],    // Mon, Thu, Fri
-  rivaaz:     [1, 2, 4]     // Mon, Tue, Thu
+  bridport:   [0, 4],    // Sun, Thu
+  dorchester: [0, 4],    // Sun, Thu
+  rivaaz:     [1, 4]     // Mon, Thu
 };
 
 function buildCkStockSection(site) {
@@ -1214,8 +1254,8 @@ function buildCkStockSection(site) {
   var list = document.getElementById('ck-stock-list');
   var dextWrap = document.getElementById('dext-wrap');
 
-  // Hide for Dorchester (central kitchen site)
-  if (site === 'dorchester') { section.style.display = 'none'; return; }
+  // Hide CK stock section for Dorchester but still show dext on delivery days
+  if (site === 'dorchester') { section.style.display = 'none'; }
   section.style.display = 'block';
   list.innerHTML = '';
   window._dextValue = '';
@@ -2537,6 +2577,14 @@ function selectSite(site) {
   var openingEl = document.getElementById('opening-checklist-section');
   if (openingEl) openingEl.style.display = isDorch ? 'block' : 'none';
   document.getElementById('ps-section').style.display = isNonPS ? 'none' : 'block';
+
+  // Drinks stock section — Bridport Sunday only (check date field)
+  var drinksStockEl = document.getElementById('drinks-stock-section');
+  if (drinksStockEl) {
+    var dateEl2 = document.getElementById('f-date');
+    var checkDate = dateEl2 && dateEl2.value ? new Date(dateEl2.value) : new Date();
+    drinksStockEl.style.display = (site === 'bridport' && checkDate.getDay() === 0) ? 'block' : 'none';
+  }
   // Update order/table placeholders based on site
   document.querySelectorAll('.staff-error-row input:first-of-type').forEach(function(inp) {
     inp.placeholder = isDorch ? 'Order #' : 'Order/Table #';
@@ -2551,7 +2599,16 @@ function selectSite(site) {
   var dateDropdown = document.getElementById('f-date');
   if (dateDropdown && !dateDropdown._ckListener) {
     dateDropdown._ckListener = true;
-    dateDropdown.addEventListener('change', function() { buildCkStockSection(currentSite); buildDrinksOrderSection(currentSite, this.value); });
+    dateDropdown.addEventListener('change', function() {
+      buildCkStockSection(currentSite);
+      buildDrinksOrderSection(currentSite, this.value);
+      // Show drinks stock section on Bridport Sunday
+      var dsEl = document.getElementById('drinks-stock-section');
+      if (dsEl) {
+        var d = this.value ? new Date(this.value) : new Date();
+        dsEl.style.display = (currentSite === 'bridport' && d.getDay() === 0) ? 'block' : 'none';
+      }
+    });
   }
   setFloatForSite(site);
 
@@ -3248,6 +3305,14 @@ function submitReport() {
     return;
   }
 
+  // Validate cash takings — mandatory (must be entered, even if 0)
+  var cashEl = document.getElementById('f-cash');
+  if (!cashEl || cashEl.value === '' || cashEl.value === null) {
+    alert('⚠ Please enter cash takings before submitting. Enter £0.00 if no cash taken.');
+    if (cashEl) { cashEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); cashEl.focus(); }
+    return;
+  }
+
   // Validate covers — mandatory for Bridport and Rivaaz
   if (currentSite !== 'dorchester') {
     var coversEl = document.getElementById('f-covers');
@@ -3313,6 +3378,22 @@ function submitReport() {
         return;
       }
     }
+  }
+
+  // Validate fridge temps & checklists — mandatory all sites
+  if (!window._fridgeChecklist) {
+    alert('⚠ Please confirm whether the opening/closing checklists and fridge temp logs were completed before submitting.');
+    var fcEl = document.getElementById('fridge-checklist-section');
+    if (fcEl) fcEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  // Validate drinks stock — Bridport Sunday only
+  var drinksEl = document.getElementById('drinks-stock-section');
+  if (drinksEl && drinksEl.style.display !== 'none' && !window._drinksStock) {
+    alert('⚠ Please confirm whether the drinks stock list was sent to Sam before submitting.');
+    drinksEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
   }
 
   // Validate opening checklist — mandatory for Dorchester
@@ -3495,6 +3576,8 @@ function submitReport() {
       refunds: getRefundsData(),
       staffErrors: getStaffErrors(),
       openingChecklistComplete: window._openingChecklist || '',
+      fridgeChecklistComplete: window._fridgeChecklist || '',
+      drinksStockSent: window._drinksStock || '',
       openingChecklistNotes: (function(){ var el = document.getElementById('f-opening-checklist-notes'); return el ? el.value.trim() : ''; })(),
       ckStock: getCkStockData(),
       drinksOrder: getDrinksOrderData(),
@@ -3583,6 +3666,13 @@ function resetForm() {
   checkPaymentOrders = [];
   window._deliveryAnalysed = false;
   window._openingChecklist = '';
+  window._fridgeChecklist = '';
+  window._drinksStock = '';
+  var fcYes=document.getElementById('fridge-checklist-yes'); if(fcYes) fcYes.className='';
+  var fcNo=document.getElementById('fridge-checklist-no'); if(fcNo) fcNo.className='';
+  var dsYes=document.getElementById('drinks-stock-yes'); if(dsYes) dsYes.className='';
+  var dsNo=document.getElementById('drinks-stock-no'); if(dsNo) dsNo.className='';
+  var dsEl=document.getElementById('drinks-stock-section'); if(dsEl) dsEl.style.display='none';
   var ocSection = document.getElementById('opening-checklist-section'); if (ocSection) ocSection.style.display = 'none';
   var ocNotes = document.getElementById('f-opening-checklist-notes'); if (ocNotes) ocNotes.value = '';
   var ocYes = document.getElementById('opening-checklist-yes'); if (ocYes) ocYes.className = '';
