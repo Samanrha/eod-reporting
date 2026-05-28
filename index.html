@@ -2354,7 +2354,7 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
 function refreshPsMatchIfNeeded() {
   if (extractedPsData && extractedPsData.total && extractedReportData && extractedReportData.expected_turnover) {
     var selectedDate = document.getElementById('f-date') ? document.getElementById('f-date').value : '';
-    var olAmt = parseFloat(extractedReportData.paymentsense_online_amount || extractedReportData.orderlord_bar_card || 0);
+    var olAmt = parseFloat(extractedReportData.paymentsense_online_amount || 0);
     populatePsData(extractedPsData, selectedDate, olAmt);
   }
 }
