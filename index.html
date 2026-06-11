@@ -420,29 +420,32 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       <button class="add-btn" onclick="addStaff()">+ Add staff member</button>
       <div class="field" style="margin-top:14px;">
         <label>Chef(s) with day off today</label>
-        <!-- Chef off — tap chips -->
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">Day off — tap to select, tap again to deselect</div>
-        <div id="chef-chips-day" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <!-- Chef off dropdown -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;">
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">Day off</div>
+            <select id="f-chef-off-select" multiple onchange="onChefOffChange()"
+              style="width:100%;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:8px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;min-height:120px;">
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">Half day</div>
+            <select id="f-chef-half-day-select" multiple
+              style="width:100%;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:8px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;min-height:120px;">
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:8px;">
           <button type="button" id="btn-no-chef-off" onclick="setNoChefOff()"
-            style="padding:10px 16px;border-radius:24px;border:1.5px solid var(--border);background:var(--green-mid);color:var(--muted);font-family:var(--sans);font-size:13px;cursor:pointer;touch-action:manipulation;">
+            style="padding:8px 14px;border-radius:5px;border:1px solid var(--border);background:var(--green-mid);color:var(--muted);font-family:var(--serif);font-size:11px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;touch-action:manipulation;">
             No Chef Off
           </button>
-          <button type="button" id="btn-half-day-toggle" onclick="toggleHalfDay()"
-            style="padding:10px 16px;border-radius:24px;border:1.5px solid var(--border);background:var(--green-mid);color:var(--muted);font-family:var(--sans);font-size:13px;cursor:pointer;touch-action:manipulation;">
-            + Half Day
-          </button>
-        </div>
-        <div id="half-day-section" style="display:none;margin-bottom:8px;">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">Half day — tap to select</div>
-          <div id="chef-chips-half" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-          <select id="f-chef-half-day-select" multiple style="display:none;"></select>
         </div>
         <div id="chef-off-error" style="display:none;font-size:11px;color:var(--red);margin-top:6px;">⚠ Please select from the list, or tap "No Chef Off"</div>
-        <!-- Hidden elements for JS compatibility -->
-        <select id="f-chef-off-select" multiple style="display:none;"></select>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;">Hold Ctrl/Cmd to select multiple · Required before submitting</div>
+        <!-- Hidden containers for JS compatibility -->
         <div id="f-chef-off" style="display:none;"></div>
-        <div id="f-chef-half-day" style="display:none;"></div>
+        <div id="half-day-section" style="display:none;"><div id="f-chef-half-day"></div></div>
       </div>
 
       <!-- PETTY CASH -->
@@ -459,7 +462,7 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       </div>
 
       <!-- LATE ORDERS -->
-      <div class="section-title">Late Orders (25+ mins)</div>
+      <div class="section-title">Late Orders (20+ mins)</div>
 
       <!-- AI screenshot upload for late orders -->
       <div id="late-upload-area"
@@ -945,18 +948,12 @@ function onCashBlur() {
     document.getElementById('f-float').value = '£' + newFloat.toFixed(2);
     document.getElementById('float-hint').textContent = 'Float adjusted: £' + defaultFloat.toFixed(2) + ' default + £' + shortfall.toFixed(2) + ' shortfall';
     document.getElementById('float-hint').style.color = 'var(--amber)';
-    // Save negative float for next day petty cash — stored in Sheets so any device picks it up
-    fetch(SHEETS_WEBHOOK_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'saveNegativeFloat',
-        site: currentSite,
-        amount: shortfall.toFixed(2),
-        date: document.getElementById('f-date') ? document.getElementById('f-date').value : ''
-      })
-    }).catch(function(e) { console.warn('Float save failed:', e); });
+    // Save negative float for next day petty cash
+    localStorage.setItem('pendingNegativeFloat_' + currentSite, JSON.stringify({
+      amount: shortfall.toFixed(2),
+      date: document.getElementById('f-date') ? document.getElementById('f-date').value : '',
+      site: currentSite
+    }));
   } else {
     document.getElementById('float-hint').style.color = 'var(--muted)';
     setFloatForSite(currentSite);
@@ -1093,19 +1090,6 @@ function setNoChefOff() {
   document.getElementById('half-day-section').style.display = 'none';
 }
 
-function toggleHalfDay() {
-  var sec = document.getElementById('half-day-section');
-  if (!sec) return;
-  var opening = sec.style.display === 'none' || sec.style.display === '';
-  sec.style.display = opening ? 'block' : 'none';
-  var btn = document.getElementById('btn-half-day-toggle');
-  if (btn) {
-    btn.style.background = opening ? 'rgba(201,185,106,.15)' : 'var(--green-mid)';
-    btn.style.color = opening ? 'var(--gold)' : 'var(--muted)';
-    btn.style.borderColor = opening ? 'var(--gold)' : 'var(--border)';
-    btn.textContent = opening ? '− Half Day' : '+ Half Day';
-  }
-}
 function showHalfDayPicker() {
   var sec = document.getElementById('half-day-section');
   sec.style.display = sec.style.display === 'none' ? 'block' : 'none';
@@ -1146,11 +1130,12 @@ function setFloatForSite(site) {
   floatEl.value = '£' + defaultFloat.toFixed(2);
   hint.textContent = 'Default float for ' + site.charAt(0).toUpperCase() + site.slice(1) + ': £' + defaultFloat.toFixed(2);
 
-  // Check for pending negative float from previous day — fetched from Sheets (device-independent)
-  fetch(SHEETS_WEBHOOK_URL + '?action=getNegativeFloat&site=' + encodeURIComponent(site))
-    .then(function(r) { return r.json(); })
-    .then(function(p) {
-      if (!p || !p.amount) return;
+  // Check for pending negative float from previous day
+  var pending = localStorage.getItem('pendingNegativeFloat_' + site);
+  if (pending) {
+    try {
+      var p = JSON.parse(pending);
+      // Auto-add to petty cash
       var pettyList = document.getElementById('petty-list');
       var exists = false;
       pettyList.querySelectorAll('input[type="text"]').forEach(function(inp) {
@@ -1169,16 +1154,13 @@ function setFloatForSite(site) {
         pettyRow.appendChild(itemInp); pettyRow.appendChild(amtInp);
         pettyRow.appendChild(makeRemoveBtn('petty-list', pettyRow));
         pettyList.insertBefore(pettyRow, pettyList.firstChild);
+        // Clear the pending flag
+        localStorage.removeItem('pendingNegativeFloat_' + site);
         hint.textContent += ' — ⚠ Negative float carried over';
         hint.style.color = 'var(--amber)';
-        // Clear the flag now it has been applied
-        fetch(SHEETS_WEBHOOK_URL, {
-          method: 'POST', mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'clearNegativeFloat', site: site })
-        });
       }
-    }).catch(function(e) { console.warn('Float check failed:', e); });
+    } catch(e) {}
+  }
 }
 
 // -- IMAGE UPLOAD HANDLERS ------------------------------------------
@@ -1307,12 +1289,12 @@ function handleDeliveryDrop(event) {
 }
 
 async function analyseDeliveryImage() {
-  var imgs = window._deliveryImages || [];
-  var imgBase64 = imgs.length ? imgs[0].base64 : (window._deliveryImageBase64 || '');
-  var mediaType = imgs.length ? (imgs[0].mediaType || 'image/jpeg') : (window._deliveryMediaType || 'image/jpeg');
+  var imgBase64 = window._deliveryImageBase64;
+  var mediaType = window._deliveryMediaType || 'image/jpeg';
   var btn = document.getElementById('delivery-analyse-btn');
   var status = document.getElementById('delivery-analysis-status');
   if (!imgs.length && !imgBase64) { if (status) { status.textContent = '⚠ No screenshots uploaded'; status.style.color='var(--red)'; } return; }
+  if (!window._anthropicKey) { if (status) { status.textContent = '⚠ No API key — enter via View Reports first'; status.style.color='var(--red)'; } return; }
 
   if (btn) { btn.textContent = '⏳ Analysing deliveries...'; btn.disabled = true; }
   if (status) { status.textContent = 'Reading delivery list...'; status.style.color = 'var(--muted)'; }
@@ -1320,10 +1302,13 @@ async function analyseDeliveryImage() {
   var siteAddr = (window.SITE_ADDRESSES && currentSite) ? (window.SITE_ADDRESSES[currentSite] || '') : '';
 
   try {
-    var resp = await fetch('/.netlify/functions/ai-proxy', {
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': window._anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
@@ -1492,12 +1477,13 @@ async function analyseLateImage() {
   var images = window._lateImages || [];
 
   if (!images.length) { status.textContent = '\u26a0 No images uploaded.'; return; }
+  if (!window._anthropicKey) { status.textContent = '\u26a0 No API key \u2014 enter via View Reports first.'; return; }
 
   btn.textContent = '\u23f3 Analysing...';
   btn.disabled = true;
 
   var allOrders = [];
-  var prompt = 'Look at this Orderlord orders table. Find the Arrived column — it contains timestamps with a number in brackets like (+10) or (+35). This number is the minutes late. I only want orders where this bracket number is STRICTLY GREATER THAN 25 — meaning 26 or more. Do NOT include orders where the number is 25 or less. Do NOT include orders with no bracket number. Output a JSON object and absolutely nothing else. Format: {"late_orders": [{"customer_name": "Zoe Harvey", "minutes_late": 35}]}. If no orders qualify with more than 25 minutes: {"late_orders": []}';
+  var prompt = 'Look at this Orderlord orders table. The Arrived column contains times with brackets like (+35) or (+28) showing minutes late. Output a JSON object listing every customer where the bracket number is strictly greater than 25. Output the JSON object and absolutely nothing else — no explanation, no commentary, no re-checking, just the raw JSON. Format: {"late_orders": [{"customer_name": "Zoe Harvey", "minutes_late": 35}]}. If none qualify: {"late_orders": []}';
 
   // Clear previous results before new analysis
   var listEl = document.getElementById('late-list');
@@ -1505,10 +1491,13 @@ async function analyseLateImage() {
   status.textContent = 'Analysing ' + images.length + ' screenshot' + (images.length > 1 ? 's' : '') + ' in parallel...';
 
   var fetchPromises = images.map(function(img, idx) {
-    return fetch('/.netlify/functions/ai-proxy', {
+    return fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': window._anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
@@ -1682,10 +1671,13 @@ async function analyseReportImage() {
   const selectedDate = document.getElementById('f-date').value;
 
   try {
-    const response = await fetch('/.netlify/functions/ai-proxy', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
+        'x-api-key': window._anthropicKey || '',
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
@@ -1890,10 +1882,13 @@ async function analysePsImage() {
   const psOrderlordAmt = parseFloat(extractedReportData.paymentsense_online_amount || 0);
 
   try {
-    const response = await fetch('/.netlify/functions/ai-proxy', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
+        'x-api-key': window._anthropicKey || '',
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
@@ -2685,7 +2680,7 @@ function addPetty() {
   amtInp.inputMode = 'decimal';
   amtInp.placeholder = '£0.00';
   amtInp.style.maxWidth = '100px';
-  amtInp.setAttribute('oninput', 'formatCurrency(this);updateExpectedCash();');
+  amtInp.setAttribute('oninput', 'formatCurrency(this)');
   row.appendChild(itemInp);
   row.appendChild(amtInp);
   row.appendChild(makeRemoveBtn('petty-list', row));
@@ -2853,19 +2848,6 @@ function getDeposits() {
 // -- SUBMIT --------------------------------------------------------
 function submitReport() {
   if (!currentSite) { alert('Please select a site first.'); return; }
-
-  // Validate daily report screenshot uploaded
-  if (!reportImageBase64 && !window._reportImageBase64) {
-    alert('⚠ Please upload the Orderlord Daily Report screenshot before submitting.');
-    var area = document.getElementById('report-upload-area');
-    if (area) area.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // Flash the upload box red
-    if (area) {
-      area.style.borderColor = 'var(--red)';
-      setTimeout(function() { area.style.borderColor = ''; }, 3000);
-    }
-    return;
-  }
 
   // Validate chef off
   if (!validateChefOff()) return;
@@ -3058,11 +3040,11 @@ function submitReport() {
 
     fetch(SHEETS_WEBHOOK_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }).then(function(r) { return r.json(); })
-    .then(function(result) {
-      console.log('Sheets sync ok:', result);
+    }).then(function() {
+      console.log('Sheets sync sent');
     }).catch(function(err) {
       console.warn('Sheets sync failed (report saved locally):', err);
     });
