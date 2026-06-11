@@ -963,13 +963,34 @@ function onCashBlur() {
 }
 
 function updateExpectedCash() {
+  var row = document.getElementById('expected-cash-row');
+  var el = document.getElementById('expected-cash-val');
+  var subtitle = document.getElementById('expected-cash-subtitle');
+  if (typeof currentSite !== 'undefined' && currentSite === 'dorchester') {
+    var olCashEl = document.getElementById('f-ol-cash-extracted');
+    var olCash = olCashEl ? parseCurrency(olCashEl.value) : 0;
+    if (!olCash && olCash !== 0) { row.style.display = 'none'; return; }
+    var pettyTotal = 0;
+    document.querySelectorAll('#petty-list .driver-row').forEach(function(r) {
+      var inputs = r.querySelectorAll('input');
+      if (inputs.length >= 2) pettyTotal += parseCurrency(inputs[inputs.length - 1].value);
+    });
+    var fuelTotal = 0;
+    document.querySelectorAll('.drv-fuel').forEach(function(inp) { fuelTotal += parseCurrency(inp.value); });
+    var wageTotal = 0;
+    document.querySelectorAll('.drv-wage').forEach(function(inp) { wageTotal += parseCurrency(inp.value); });
+    var expected = olCash - pettyTotal - fuelTotal - wageTotal;
+    el.textContent = (expected < 0 ? '-' : '') + '£' + Math.abs(expected).toFixed(2);
+    el.style.color = expected < 0 ? 'var(--red)' : 'var(--gold)';
+    if (subtitle) subtitle.textContent = 'OL Cash (£' + olCash.toFixed(2) + ') minus petty cash (£' + pettyTotal.toFixed(2) + ') minus fuel (£' + fuelTotal.toFixed(2) + ') minus wages (£' + wageTotal.toFixed(2) + ')';
+    row.style.display = 'block';
+    return;
+  }
   var cash = parseCurrency(document.getElementById('f-cash').value);
-  if (!cash && cash !== 0) { document.getElementById('expected-cash-row').style.display = 'none'; return; }
-
-  // Sum petty cash
+  if (!cash && cash !== 0) { row.style.display = 'none'; return; }
   var pettyTotal = 0;
-  document.querySelectorAll('#petty-list .driver-row').forEach(function(row) {
-    var inputs = row.querySelectorAll('input');
+  document.querySelectorAll('#petty-list .driver-row').forEach(function(r) {
+    var inputs = r.querySelectorAll('input');
     if (inputs.length >= 2) pettyTotal += parseCurrency(inputs[inputs.length - 1].value);
   });
 
