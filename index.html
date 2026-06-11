@@ -1,9 +1,17 @@
+<!--
+  EOD Reporting App — M95 Kitchens Group
+  Venues: Bridport, Dorchester, Rivaaz Lymington
+  Stack: Vanilla JS, Netlify, Google Sheets via Apps Script webhook
+  Repo: https://github.com/Samanrha/eod-reporting
+  Live: https://eod-reporting.netlify.app
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>The Sundorbon — End of Day Report</title>
+<!-- v20260516-15 -->
 <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -202,7 +210,7 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       </div>
 
       <!-- Total Covers (Bridport + Dorchester only) -->
-      <div class="field" id="covers-field" style="display:none;">
+      <div class="field" id="covers-field">
         <label>Total Covers</label>
         <input type="number" id="f-covers" placeholder="0" min="0" style="max-width:160px;">
       </div>
@@ -387,6 +395,27 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
           <textarea id="f-ps-discrepancy" placeholder="Explain why Paymentsense total differs from Orderlord..." rows="3"></textarea>
         </div>
         <div id="ps-date-error" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none;font-style:italic;"></div>
+        <div id="ps-no-transactions-wrap" style="display:none;margin-top:8px;">
+          <!-- shown when PS=0 and OL also 0 — genuine quiet night -->
+          <div id="ps-no-tx-quiet" style="display:none;">
+            <div class="toggle-row" style="background:rgba(201,185,106,.08);border:1px solid var(--gold-dim);">
+              <span class="toggle-label" style="color:var(--gold);">No card transactions tonight — confirm</span>
+              <div class="toggle">
+                <button type="button" id="ps-no-tx-yes" onclick="setPsNoTransactions('yes')" style="touch-action:manipulation;">Yes</button>
+                <button type="button" id="ps-no-tx-no" onclick="setPsNoTransactions('no')" style="touch-action:manipulation;">No</button>
+              </div>
+            </div>
+          </div>
+          <!-- shown when PS=0 but OL expects payment — missing payment -->
+          <div id="ps-no-tx-missing" style="display:none;">
+            <div style="background:rgba(217,64,64,.12);border:1.5px solid var(--red);border-radius:6px;padding:12px 14px;margin-bottom:8px;">
+              <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:6px;">⚠ Missing payment — Paymentsense shows £0 but Orderlord expects a card payment</div>
+              <div id="ps-missing-amount" style="font-size:13px;color:var(--text);margin-bottom:10px;"></div>
+              <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:6px;">Explanation — what happened? *</label>
+              <textarea id="f-ps-missing-reason" rows="2" placeholder="e.g. Card machine not connected, payment taken manually, dispute with customer..." style="width:100%;background:var(--green);border:1px solid var(--red);border-radius:5px;padding:10px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;resize:vertical;"></textarea>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Cash correct only shown for Dorchester -->
@@ -407,6 +436,46 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
       </div><!-- /ps-section -->
 
+      <!-- FRIDGE TEMPS & CHECKLISTS — all sites -->
+      <div id="fridge-checklist-section">
+        <div class="section-title">Opening/Closing Checklists &amp; Fridge Temps <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
+        <div class="toggle-row" style="margin-bottom:8px;border:1px solid rgba(201,185,106,.3);border-radius:6px;padding:10px 12px;">
+          <span class="toggle-label">Opening/Closing checklists &amp; Fridge temp logs complete? <span style="color:var(--red);">*</span></span>
+          <div class="toggle">
+            <button type="button" id="fridge-checklist-yes" onclick="setFridgeChecklist('yes')" style="touch-action:manipulation;">Yes</button>
+            <button type="button" id="fridge-checklist-no" onclick="setFridgeChecklist('no')" style="touch-action:manipulation;">No</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DRINKS STOCK — Bridport Sunday only -->
+      <div id="drinks-stock-section" style="display:none;">
+        <div class="section-title">Drinks Stock List</div>
+        <div class="toggle-row" style="margin-bottom:8px;border:1px solid rgba(201,185,106,.3);border-radius:6px;padding:10px 12px;">
+          <span class="toggle-label">Drinks stock list sent to Sam? <span style="color:var(--red);">*</span></span>
+          <div class="toggle">
+            <button type="button" id="drinks-stock-yes" onclick="setDrinksStock('yes')" style="touch-action:manipulation;">Yes</button>
+            <button type="button" id="drinks-stock-no" onclick="setDrinksStock('no')" style="touch-action:manipulation;">No</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPENING CHECKLIST — Dorchester only -->
+      <div id="opening-checklist-section" style="display:none;">
+        <div class="section-title">Opening Checklist <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
+        <div class="toggle-row" style="margin-bottom:8px;border:1px solid rgba(201,185,106,.3);border-radius:6px;padding:10px 12px;">
+          <span class="toggle-label">Opening checklist complete? <span style="color:var(--red);">*</span></span>
+          <div class="toggle">
+            <button type="button" id="opening-checklist-yes" onclick="setOpeningChecklist('yes')" style="touch-action:manipulation;">Yes</button>
+            <button type="button" id="opening-checklist-no" onclick="setOpeningChecklist('no')" style="touch-action:manipulation;">No</button>
+          </div>
+        </div>
+        <div id="opening-checklist-incomplete" style="display:none;margin-top:8px;">
+          <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:6px;">Tasks not completed *</label>
+          <textarea id="f-opening-checklist-notes" rows="3" placeholder="e.g. Fridge temp not checked, handwashing station not stocked..." style="width:100%;background:var(--green);border:1px solid var(--gold-dim);border-radius:5px;padding:10px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;resize:vertical;"></textarea>
+        </div>
+      </div>
+
       <!-- DRIVERS -->
       <div id="drivers-section">
         <div class="section-title">Drivers — Fuel & Wages</div>
@@ -420,32 +489,29 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       <button class="add-btn" onclick="addStaff()">+ Add staff member</button>
       <div class="field" style="margin-top:14px;">
         <label>Chef(s) with day off today</label>
-        <!-- Chef off dropdown -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;">
-          <div>
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">Day off</div>
-            <select id="f-chef-off-select" multiple onchange="onChefOffChange()"
-              style="width:100%;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:8px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;min-height:120px;">
-            </select>
-          </div>
-          <div>
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">Half day</div>
-            <select id="f-chef-half-day-select" multiple
-              style="width:100%;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:8px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;min-height:120px;">
-            </select>
-          </div>
-        </div>
-        <div style="margin-top:8px;">
+        <!-- Chef off — tap chips -->
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">Day off — tap to select, tap again to deselect</div>
+        <div id="chef-chips-day" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
           <button type="button" id="btn-no-chef-off" onclick="setNoChefOff()"
-            style="padding:8px 14px;border-radius:5px;border:1px solid var(--border);background:var(--green-mid);color:var(--muted);font-family:var(--serif);font-size:11px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;touch-action:manipulation;">
+            style="padding:10px 16px;border-radius:24px;border:1.5px solid var(--border);background:var(--green-mid);color:var(--muted);font-family:var(--sans);font-size:13px;cursor:pointer;touch-action:manipulation;">
             No Chef Off
           </button>
+          <button type="button" id="btn-half-day-toggle" onclick="toggleHalfDay()"
+            style="padding:10px 16px;border-radius:24px;border:1.5px solid var(--border);background:var(--green-mid);color:var(--muted);font-family:var(--sans);font-size:13px;cursor:pointer;touch-action:manipulation;">
+            + Half Day
+          </button>
+        </div>
+        <div id="half-day-section" style="display:none;margin-bottom:8px;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">Half day — tap to select</div>
+          <div id="chef-chips-half" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+          <select id="f-chef-half-day-select" multiple style="display:none;"></select>
         </div>
         <div id="chef-off-error" style="display:none;font-size:11px;color:var(--red);margin-top:6px;">⚠ Please select from the list, or tap "No Chef Off"</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px;">Hold Ctrl/Cmd to select multiple · Required before submitting</div>
-        <!-- Hidden containers for JS compatibility -->
+        <!-- Hidden elements for JS compatibility -->
+        <select id="f-chef-off-select" multiple style="display:none;"></select>
         <div id="f-chef-off" style="display:none;"></div>
-        <div id="half-day-section" style="display:none;"><div id="f-chef-half-day"></div></div>
+        <div id="f-chef-half-day" style="display:none;"></div>
       </div>
 
       <!-- PETTY CASH -->
@@ -462,7 +528,7 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       </div>
 
       <!-- LATE ORDERS -->
-      <div class="section-title">Late Orders (20+ mins)</div>
+      <div class="section-title">Late Orders (25+ mins)</div>
 
       <!-- AI screenshot upload for late orders -->
       <div id="late-upload-area"
@@ -507,12 +573,6 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
       <!-- STOCK TO ORDER -->
       <div class="section-title">Stock to Order</div>
-      <div class="field-row">
-        <div class="field">
-          <label>Shopping Total (£)</label>
-          <input type="text" id="f-shopping-total" placeholder="£0.00" oninput="formatCurrency(this)">
-        </div>
-      </div>
       <div class="field">
         <label>Items needed</label>
         <textarea id="f-stock" placeholder="e.g. Chicken x4 trays, lamb mince, naan bread, poppadoms..."></textarea>
@@ -531,6 +591,13 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- DRINKS ORDER (Rivaaz — Sat & Tue only) -->
+      <div id="drinks-order-section" style="display:none;">
+        <div class="section-title">Drinks Order</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter quantity needed for each item — leave blank if not needed</div>
+        <div id="drinks-order-list"></div>
       </div>
 
       <!-- WASTAGE -->
@@ -631,46 +698,55 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 <script>
 
 // -- LOGIN/NAV BRIDGE --
-function selectLocation(site) {
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  var btn = document.getElementById('loc-' + site);
-  if (btn) btn.classList.add('selected');
+var selectedLocation = '';
+function selectLocation(loc) {
+  selectedLocation = loc;
+  document.querySelectorAll('.login-loc-btn').forEach(function(b){ b.classList.remove('selected'); });
+  var locBtn = document.getElementById('loc-' + loc);
+  if (locBtn) locBtn.classList.add('selected');
+  var labels = { bridport: 'Bridport', dorchester: 'Dorchester', rivaaz: 'Rivaaz Lymington' };
+  var titleEl = document.getElementById('login-pin-title');
+  if (titleEl) titleEl.textContent = labels[loc] || loc;
+  var subEl = document.getElementById('login-pin-sub');
+  if (subEl) subEl.textContent = 'Enter your PIN to continue';
   var pinBox = document.getElementById('login-pin-box');
   if (pinBox) pinBox.style.display = 'block';
-  var title = document.getElementById('login-pin-title');
-  if (title) title.textContent = 'Enter PIN — ' + site.charAt(0).toUpperCase() + site.slice(1);
-  var inp = document.getElementById('login-pin-input');
-  if (inp) { inp.value = ''; inp.focus(); }
-  var err = document.getElementById('login-pin-error');
-  if (err) err.textContent = '';
-  window._pendingSite = site;
+  var pinInp = document.getElementById('login-pin-input');
+  if (pinInp) pinInp.value = '';
+  var pinErr = document.getElementById('login-pin-error');
+  if (pinErr) pinErr.textContent = '';
+  setTimeout(function(){ var p = document.getElementById('login-pin-input'); if(p) p.focus(); }, 100);
 }
 function clearLocationSelection() {
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
+  selectedLocation = '';
+  document.querySelectorAll('.login-loc-btn').forEach(function(b){ b.classList.remove('selected'); });
   var pinBox = document.getElementById('login-pin-box');
   if (pinBox) pinBox.style.display = 'none';
-  window._pendingSite = null;
+  var pinInp = document.getElementById('login-pin-input');
+  if (pinInp) pinInp.value = '';
 }
 function checkLocationPin() {
-  var pins = { bridport: '2001', dorchester: '2002', rivaaz: '2003' };
-  var inp = document.getElementById('login-pin-input');
-  var val = inp ? inp.value : '';
-  var site = window._pendingSite;
-  if (!site) return;
-  if (val === pins[site]) {
+  var PINS_EARLY = { bridport: '2001', dorchester: '2002', rivaaz: '2003' };
+  var pinInp = document.getElementById('login-pin-input');
+  var val = pinInp ? pinInp.value : '';
+  if (val.length < 4) return;
+  if (val === PINS_EARLY[selectedLocation]) {
     var overlay = document.getElementById('login-overlay');
     if (overlay) overlay.classList.add('hidden');
-    selectSite(site);
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    var formView = document.getElementById('view-form');
-    if (formView) formView.classList.add('active');
     var navNew = document.getElementById('nav-new-report');
-    if (navNew) navNew.style.display = 'inline-flex';
-    var lbl = document.getElementById('form-site-label');
-    if (lbl) lbl.textContent = site.charAt(0).toUpperCase() + site.slice(1);
-  } else if (val.length === 4) {
-    var err = document.getElementById('login-pin-error');
-    if (err) err.textContent = 'Incorrect PIN — try again';
+    if (navNew) navNew.style.display = 'block';
+    showView('form');
+    // show form view inline — don't rely on showView being defined yet
+    document.querySelectorAll('.view').forEach(function(el){ el.classList.remove('active'); });
+    var fv = document.getElementById('view-form');
+    if (fv) fv.classList.add('active');
+    document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
+    setTimeout(function(){ if(typeof selectSite === 'function') selectSite(selectedLocation); }, 150);
+  } else {
+    var pinErr = document.getElementById('login-pin-error');
+    if (pinErr) pinErr.textContent = 'Incorrect PIN. Try again.';
+    var pinInp2 = document.getElementById('login-pin-input');
+    if (pinInp2) pinInp2.value = '';
   }
 }
 function requestDashboard() {
@@ -678,12 +754,12 @@ function requestDashboard() {
   if (overlay) overlay.classList.add('open');
 }
 function goToNewReport() {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
   var formView = document.getElementById('view-form');
   if (formView) formView.classList.add('active');
 }
 function filterReports(site) {
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.filter-btn').forEach(function(b){ b.classList.remove('active'); });
   if (event && event.target) event.target.classList.add('active');
   renderDashboard(site);
 }
@@ -696,7 +772,7 @@ function closeModal() {
 // -- GOOGLE SHEETS WEBHOOK URL ------------------------------------
 // Paste your deployed Apps Script URL here after deploying
 window._lateImages = window._lateImages || [];
-var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbySPf43rI_Q3YY1W9f6xjH4XvCYLZ3Y1YaNP6jBzXN7tgvLIbBBs0HU51nRL5sNgHrZ/exec';
+var SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxU701_jb1esdZzCMir1_i8Jsyo3hEsyKwnXOgyU1XtaYPbXSCZLNWwJamzSxIbVar_/exec';
 
 // -- API KEY (stored in session only) -----------------------------
 window._anthropicKey = localStorage.getItem('_ak') || '';
@@ -707,28 +783,85 @@ window.SITE_ADDRESSES = {
   rivaaz:     '7 St Thomas Street, Lymington, SO41 9NA'
 };
 
+// Restaurant origin addresses for distance calculation
+var SITE_ORIGINS = {
+  bridport:   '68 South Street, Bridport, DT6 3NN',
+  dorchester: '6 Cornhill, Dorchester, DT1 1BA',
+  rivaaz:     '1 High Street, Lymington, SO41 9AD'
+};
+
+// Calculate real driving distances from restaurant to each delivery address
+async function getRealDistances(addresses) {
+  if (!addresses || !addresses.length) return {};
+  var origin = SITE_ORIGINS[currentSite] || SITE_ORIGINS.bridport;
+  try {
+    var resp = await fetch('/.netlify/functions/maps-distance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin: origin, destinations: addresses })
+    });
+    var data = await resp.json();
+    if (data.error) { console.warn('Maps distance error:', data.error); return {}; }
+    var map = {};
+    (data.results || []).forEach(function(r) {
+      if (r.status === 'OK') map[r.destination] = r.miles;
+    });
+    return map;
+  } catch (e) {
+    console.warn('Maps distance fetch failed:', e);
+    return {};
+  }
+}
+
 var FUEL_RATES = [
-  { max: 3, rate: 1 },
-  { max: 6, rate: 2 },
-  { max: 9, rate: 3 },
-  { max: 12, rate: 5 }
+  { max: 3,  rate: 1 },
+  { max: 6,  rate: 2 },
+  { max: 9,  rate: 3 },
+  { max: 11, rate: 4 },
+  { max: 999, rate: 5 }
 ];
 
 function calcFuelRate(miles) {
   for (var i = 0; i < FUEL_RATES.length; i++) {
     if (miles <= FUEL_RATES[i].max) return FUEL_RATES[i].rate;
   }
-  return 5;
+  return 5; // 12+ miles
 }
 
-function populateDriversFromScreenshot(deliveriesFlat) {
+async function populateDriversFromScreenshot(deliveriesFlat) {
+  // Get all unique addresses from deliveries and fetch real distances
+  var uniqueAddresses = [];
+  (deliveriesFlat || []).forEach(function(d) {
+    if (d.address && d.address !== '—' && !uniqueAddresses.includes(d.address)) {
+      uniqueAddresses.push(d.address);
+    }
+  });
+
+  // Fetch real distances from Google Maps
+  var distanceMap = {};
+  if (uniqueAddresses.length > 0) {
+    var statusEl = document.getElementById('delivery-analysis-status');
+    if (statusEl) statusEl.textContent = 'Calculating real distances via Google Maps...';
+    distanceMap = await getRealDistances(uniqueAddresses);
+    // Replace guessed miles with real ones
+    (deliveriesFlat || []).forEach(function(d) {
+      if (d.address && distanceMap[d.address] !== undefined) {
+        d.miles = distanceMap[d.address];
+      }
+    });
+  }
   // Accept flat delivery array [{driver, address, miles}] and group by driver
   var driversMap = {};
   (deliveriesFlat || []).forEach(function(d) {
     var key = (d.driver || '').toLowerCase().trim();
     if (!key || key === 'driver name') return;
-    if (!driversMap[key]) driversMap[key] = { name: d.driver, deliveries: [] };
-    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0 });
+    if (!driversMap[key]) driversMap[key] = { name: d.driver, deliveries: [], cashOrders: [] };
+    var isCash = (d.payment || '').toLowerCase().trim() === 'cash';
+    var cashAmt = parseFloat(d.cash_amount) || 0;
+    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt });
+    if (isCash && cashAmt > 0) {
+      driversMap[key].cashOrders.push({ address: d.address || '—', amount: cashAmt });
+    }
   });
   var driversData = Object.values(driversMap);
 
@@ -746,7 +879,7 @@ function populateDriversFromScreenshot(deliveriesFlat) {
       var miles = parseFloat(dlv.miles) || 0;
       var rate = calcFuelRate(miles);
       totalFuel += rate;
-      deliveryDetails.push(dlv.address + ' (' + miles + 'mi = £' + rate + ')');
+      var payLabel = dlv.payment ? ' [' + dlv.payment + ']' : ''; deliveryDetails.push(dlv.address + ' (' + miles + 'mi = £' + rate + ')' + payLabel);
     });
 
     // Build driver row
@@ -769,6 +902,55 @@ function populateDriversFromScreenshot(deliveriesFlat) {
     hdr.appendChild(nameEl);
     hdr.appendChild(fuelEl);
     row.appendChild(hdr);
+
+    // Cash orders alert banner
+    var cashOrders = driver.cashOrders || [];
+    if (cashOrders.length > 0) {
+      var cashTotal = cashOrders.reduce(function(s, o){ return s + o.amount; }, 0);
+
+      var cashBanner = document.createElement('div');
+      cashBanner.style.cssText = 'background:rgba(201,185,106,.15);border:1.5px solid var(--gold);border-radius:6px;padding:10px 12px;margin-bottom:8px;';
+
+      var cashTitle = document.createElement('div');
+      cashTitle.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
+
+      var cashLabel = document.createElement('div');
+      cashLabel.style.cssText = 'font-size:12px;font-weight:700;color:var(--gold);font-family:var(--serif);letter-spacing:.06em;';
+      cashLabel.textContent = '💰 CASH PAYMENT' + (cashOrders.length > 1 ? 'S' : '') + ' — £' + cashTotal.toFixed(2);
+
+      var cashReceivedBtn = document.createElement('button');
+      cashReceivedBtn.type = 'button';
+      cashReceivedBtn.textContent = 'Cash received?';
+      cashReceivedBtn.dataset.cashReceived = 'false';
+      cashReceivedBtn.className = 'cash-received-btn';
+      cashReceivedBtn.style.cssText = 'padding:6px 12px;border-radius:4px;border:1.5px solid var(--gold);background:transparent;color:var(--gold);cursor:pointer;font-family:var(--serif);font-size:10px;letter-spacing:.08em;text-transform:uppercase;touch-action:manipulation;white-space:nowrap;font-weight:700;';
+      cashReceivedBtn.onclick = function() {
+        var done = this.dataset.cashReceived === 'true';
+        this.dataset.cashReceived = done ? 'false' : 'true';
+        this.textContent = done ? 'Cash received?' : '✓ Cash received';
+        this.style.background = done ? 'transparent' : 'rgba(201,185,106,.3)';
+        this.style.color = done ? 'var(--gold)' : 'var(--gold)';
+        cashBanner.style.borderColor = done ? 'var(--gold)' : 'var(--green-acc)';
+        cashBanner.style.background = done ? 'rgba(201,185,106,.15)' : 'rgba(90,200,128,.1)';
+        cashLabel.style.color = done ? 'var(--gold)' : 'var(--green-acc)';
+        if (!done) cashLabel.textContent = '✓ CASH RECEIVED — £' + cashTotal.toFixed(2);
+        else cashLabel.textContent = '💰 CASH PAYMENT' + (cashOrders.length > 1 ? 'S' : '') + ' — £' + cashTotal.toFixed(2);
+      };
+
+      cashTitle.appendChild(cashLabel);
+      cashTitle.appendChild(cashReceivedBtn);
+      cashBanner.appendChild(cashTitle);
+
+      // List each cash order
+      cashOrders.forEach(function(co, idx) {
+        var item = document.createElement('div');
+        item.style.cssText = 'font-size:11px;color:var(--text);padding:2px 0;border-top:' + (idx > 0 ? '1px solid rgba(201,185,106,.2)' : 'none') + ';';
+        item.className = 'cash-order-amount'; item.dataset.amount = co.amount; item.textContent = (idx+1) + '. £' + co.amount.toFixed(2) + ' — ' + co.address;
+        cashBanner.appendChild(item);
+      });
+
+      row.appendChild(cashBanner);
+    }
 
     // Delivery breakdown (collapsible)
     if (deliveryDetails.length > 0) {
@@ -797,7 +979,7 @@ function populateDriversFromScreenshot(deliveriesFlat) {
     wageInp.style.cssText = 'background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;';
 
     var paidBtn = document.createElement('button');
-    paidBtn.type = 'button'; paidBtn.textContent = 'Paid?';
+    paidBtn.type = 'button'; paidBtn.textContent = 'Fuel Paid?';
     paidBtn.dataset.paid = 'false';
     paidBtn.style.cssText = 'padding:10px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--serif);font-size:10px;letter-spacing:.06em;text-transform:uppercase;touch-action:manipulation;white-space:nowrap;';
     paidBtn.onclick = function() {
@@ -810,7 +992,7 @@ function populateDriversFromScreenshot(deliveriesFlat) {
     };
 
     var wageBtn = document.createElement('button');
-    wageBtn.type = 'button'; wageBtn.textContent = 'Wage';
+    wageBtn.type = 'button'; wageBtn.textContent = 'Wage Paid?';
     wageBtn.dataset.wagePaid = 'false';
     wageBtn.style.cssText = 'padding:10px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--serif);font-size:10px;letter-spacing:.06em;text-transform:uppercase;touch-action:manipulation;white-space:nowrap;';
     wageBtn.onclick = function() {
@@ -932,11 +1114,11 @@ function parseCurrency(str) {
 function onCashBlur() {
   var amt = parseCurrency(document.getElementById('f-cash').value);
   var warn = document.getElementById('cash-warning');
+  // Cash location always shown regardless of amount
+  document.getElementById('takings-location-section').style.display = 'block';
   if (amt > 0) {
-    document.getElementById('takings-location-section').style.display = 'block';
     warn.style.display = amt > 300 ? 'block' : 'none';
   } else {
-    document.getElementById('takings-location-section').style.display = 'none';
     warn.style.display = 'none';
   }
 
@@ -948,12 +1130,18 @@ function onCashBlur() {
     document.getElementById('f-float').value = '£' + newFloat.toFixed(2);
     document.getElementById('float-hint').textContent = 'Float adjusted: £' + defaultFloat.toFixed(2) + ' default + £' + shortfall.toFixed(2) + ' shortfall';
     document.getElementById('float-hint').style.color = 'var(--amber)';
-    // Save negative float for next day petty cash
-    localStorage.setItem('pendingNegativeFloat_' + currentSite, JSON.stringify({
-      amount: shortfall.toFixed(2),
-      date: document.getElementById('f-date') ? document.getElementById('f-date').value : '',
-      site: currentSite
-    }));
+    // Save negative float for next day petty cash — stored in Sheets so any device picks it up
+    fetch(SHEETS_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'saveNegativeFloat',
+        site: currentSite,
+        amount: shortfall.toFixed(2),
+        date: document.getElementById('f-date') ? document.getElementById('f-date').value : ''
+      })
+    }).catch(function(e) { console.warn('Float save failed:', e); });
   } else {
     document.getElementById('float-hint').style.color = 'var(--muted)';
     setFloatForSite(currentSite);
@@ -963,34 +1151,13 @@ function onCashBlur() {
 }
 
 function updateExpectedCash() {
-  var row = document.getElementById('expected-cash-row');
-  var el = document.getElementById('expected-cash-val');
-  var subtitle = document.getElementById('expected-cash-subtitle');
-  if (typeof currentSite !== 'undefined' && currentSite === 'dorchester') {
-    var olCashEl = document.getElementById('f-ol-cash-extracted');
-    var olCash = olCashEl ? parseCurrency(olCashEl.value) : 0;
-    if (!olCash && olCash !== 0) { row.style.display = 'none'; return; }
-    var pettyTotal = 0;
-    document.querySelectorAll('#petty-list .driver-row').forEach(function(r) {
-      var inputs = r.querySelectorAll('input');
-      if (inputs.length >= 2) pettyTotal += parseCurrency(inputs[inputs.length - 1].value);
-    });
-    var fuelTotal = 0;
-    document.querySelectorAll('.drv-fuel').forEach(function(inp) { fuelTotal += parseCurrency(inp.value); });
-    var wageTotal = 0;
-    document.querySelectorAll('.drv-wage').forEach(function(inp) { wageTotal += parseCurrency(inp.value); });
-    var expected = olCash - pettyTotal - fuelTotal - wageTotal;
-    el.textContent = (expected < 0 ? '-' : '') + '£' + Math.abs(expected).toFixed(2);
-    el.style.color = expected < 0 ? 'var(--red)' : 'var(--gold)';
-    if (subtitle) subtitle.textContent = 'OL Cash (£' + olCash.toFixed(2) + ') minus petty cash (£' + pettyTotal.toFixed(2) + ') minus fuel (£' + fuelTotal.toFixed(2) + ') minus wages (£' + wageTotal.toFixed(2) + ')';
-    row.style.display = 'block';
-    return;
-  }
   var cash = parseCurrency(document.getElementById('f-cash').value);
-  if (!cash && cash !== 0) { row.style.display = 'none'; return; }
+  if (!cash && cash !== 0) { document.getElementById('expected-cash-row').style.display = 'none'; return; }
+
+  // Sum petty cash
   var pettyTotal = 0;
-  document.querySelectorAll('#petty-list .driver-row').forEach(function(r) {
-    var inputs = r.querySelectorAll('input');
+  document.querySelectorAll('#petty-list .driver-row').forEach(function(row) {
+    var inputs = row.querySelectorAll('input');
     if (inputs.length >= 2) pettyTotal += parseCurrency(inputs[inputs.length - 1].value);
   });
 
@@ -1004,6 +1171,11 @@ function updateExpectedCash() {
 
 function onTakingsLocationChange() {
   const val = document.getElementById('f-takings-location').value;
+    if (!val) {
+      alert('Please select where the cash was kept before submitting.');
+      document.getElementById('f-takings-location').focus();
+      return;
+    }
   document.getElementById('given-to-field').style.display = val === 'given' ? 'block' : 'none';
 }
 
@@ -1013,6 +1185,51 @@ function onChangeNeededToggle() {
 }
 
 // -- FLOAT AUTO-FILL ------------------------------------------------
+function setPsNoTransactions(val) {
+  window._psNoTransactions = val === 'yes';
+  document.getElementById('ps-no-tx-yes').className = val === 'yes' ? 'yes' : '';
+  document.getElementById('ps-no-tx-no').className = val === 'no' ? 'no' : '';
+}
+
+function setFridgeChecklist(val) {
+  window._fridgeChecklist = val;
+  var yBtn = document.getElementById('fridge-checklist-yes');
+  var nBtn = document.getElementById('fridge-checklist-no');
+  if (yBtn) yBtn.className = val === 'yes' ? 'yes' : '';
+  if (nBtn) nBtn.className = val === 'no' ? 'no' : '';
+}
+
+function setDrinksStock(val) {
+  window._drinksStock = val;
+  var yBtn = document.getElementById('drinks-stock-yes');
+  var nBtn = document.getElementById('drinks-stock-no');
+  if (yBtn) yBtn.className = val === 'yes' ? 'yes' : '';
+  if (nBtn) nBtn.className = val === 'no' ? 'no' : '';
+}
+
+function setOpeningChecklist(val) {
+  window._openingChecklist = val;
+  document.getElementById('opening-checklist-yes').className = val === 'yes' ? 'yes' : '';
+  document.getElementById('opening-checklist-no').className = val === 'no' ? 'no' : '';
+  var incomplete = document.getElementById('opening-checklist-incomplete');
+  if (val === 'no') {
+    incomplete.style.display = 'block';
+    // Show popup prompting for details
+    setTimeout(function() {
+      var notes = document.getElementById('f-opening-checklist-notes');
+      if (notes && !notes.value.trim()) {
+        notes.focus();
+        notes.style.borderColor = 'var(--gold)';
+        setTimeout(function(){ notes.style.borderColor = ''; }, 3000);
+      }
+    }, 100);
+  } else {
+    incomplete.style.display = 'none';
+    var notes = document.getElementById('f-opening-checklist-notes');
+    if (notes) notes.value = '';
+  }
+}
+
 function setDext(val) {
   document.getElementById('dext-yes').className = val === 'yes' ? 'yes' : '';
   document.getElementById('dext-no').className = val === 'no' ? 'no' : '';
@@ -1020,16 +1237,16 @@ function setDext(val) {
 }
 
 var CK_ITEMS = {
-  bridport:   ['Lamb Tray','Chicken Tray','Tomato Puri Bucket','Tomato Gravy Bucket','Makhani Bucket','Korma Bucket','Masala Bucket'],
-  dorchester: ['Lamb Tray','Chicken Tray','Tomato Puri Bucket','Tomato Gravy Bucket','Makhani Bucket','Korma Bucket','Masala Bucket'],
-  rivaaz:     ['Lamb Tray','Tomato Puri Bucket','Tomato Gravy Bucket','Makhani Bucket','Korma Bucket','Masala Bucket']
+  bridport:   ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala'],
+  dorchester: ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala'],
+  rivaaz:     ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala']
 };
 
 // Bridport & Dorchester: Sun + Thu | Lymington: Mon + Thu
 var CK_DAYS = {
-  bridport:   [0, 2, 4],    // Sun, Tue, Thu
-  dorchester: [1, 4, 5],    // Mon, Thu, Fri
-  rivaaz:     [1, 2, 4]     // Mon, Tue, Thu
+  bridport:   [0, 4],    // Sun, Thu
+  dorchester: [0, 4],    // Sun, Thu
+  rivaaz:     [1, 4]     // Mon, Thu
 };
 
 function buildCkStockSection(site) {
@@ -1037,8 +1254,8 @@ function buildCkStockSection(site) {
   var list = document.getElementById('ck-stock-list');
   var dextWrap = document.getElementById('dext-wrap');
 
-  // Hide for Dorchester (central kitchen site)
-  if (site === 'dorchester') { section.style.display = 'none'; return; }
+  // Hide CK stock section for Dorchester but still show dext on delivery days
+  if (site === 'dorchester') { section.style.display = 'none'; }
   section.style.display = 'block';
   list.innerHTML = '';
   window._dextValue = '';
@@ -1053,6 +1270,7 @@ function buildCkStockSection(site) {
   var isCkDay = ckDays.includes(selectedDay);
 
   // Show Dext toggle only on delivery days
+  // Show dext on CK delivery days only
   if (dextWrap) dextWrap.style.display = isCkDay ? 'block' : 'none';
   // Change label based on site
   var dextLbl = document.getElementById('dext-label');
@@ -1075,25 +1293,79 @@ function buildCkStockSection(site) {
     label.style.cssText = 'font-size:13px;color:var(--text);';
     label.textContent = item;
 
-    var inp = document.createElement('input');
-    inp.type = 'text';
-    inp.inputMode = 'decimal';
-    inp.placeholder = '0';
-    inp.dataset.item = item;
-    inp.style.cssText = 'width:80px;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;text-align:center;outline:none;';
+    var ckSizes = ['2.5kg','5kg','10kg','15kg','20kg','30kg','40kg','50kg'];
+    var ckSel = document.createElement('select');
+    ckSel.dataset.item = item;
+    ckSel.style.cssText = 'background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;outline:none;-webkit-appearance:none;min-width:110px;';
+    var ckBlank = document.createElement('option');
+    ckBlank.value = ''; ckBlank.textContent = '— qty —'; ckBlank.disabled = true; ckBlank.selected = true;
+    ckSel.appendChild(ckBlank);
+    ckSizes.forEach(function(sz) { var o = document.createElement('option'); o.value = sz; o.textContent = sz; ckSel.appendChild(o); });
 
     row.appendChild(label);
-    row.appendChild(inp);
+    row.appendChild(ckSel);
     list.appendChild(row);
   });
 }
 
 function getCkStockData() {
   var result = {};
-  document.querySelectorAll('#ck-stock-list input').forEach(function(inp) {
-    if (inp.value.trim()) result[inp.dataset.item] = inp.value.trim();
+  document.querySelectorAll('#ck-stock-list select').forEach(function(inp) {
+    if (inp.value) result[inp.dataset.item] = inp.value;
   });
   result.dextUploaded = window._dextValue || '';
+  return result;
+}
+
+function buildDrinksOrderSection(site, dateValue) {
+  var section = document.getElementById('drinks-order-section');
+  var list = document.getElementById('drinks-order-list');
+  if (!section || !list) return;
+
+  // Only show for Rivaaz on Saturdays (6) and Tuesdays (2)
+  var DRINKS_DAYS = [2, 6]; // Tue, Sat
+  var selectedDate = dateValue ? new Date(dateValue) : new Date();
+  var day = selectedDate.getDay();
+  var show = (site === 'rivaaz') && DRINKS_DAYS.includes(day);
+  section.style.display = show ? 'block' : 'none';
+  if (!show) return;
+
+  list.innerHTML = '';
+  var DRINKS_ITEMS = ['Cobra 620ml (12)', 'Cobra 330ml (12)', 'Kingfisher 650ml (12)', 'Kingfisher 330ml (24)', 'Heineken Zero 330ml (24)', 'Managers 568ml (12)', 'IPA 330ml (12)', 'Corona 660ml (12)', 'Coke 330ml (24)', 'Diet Coke 330ml (24)', 'Soda 200ml (24)', 'Lemonade 200ml (24)', 'Coke 200ml (24)', 'Diet Coke 200ml (24)', 'Tonic Full 150ml (24)', 'Slimline Tonic 150ml (24)', 'Coke 1.5L (6)', 'Diet Coke 1.5L (6)', 'Lemonade 1.5L (12)', 'Soda 1L (6)', 'Still Water 750ml (12)', 'Sparkling Water 750ml (12)'];
+
+  // Split into two columns
+  var grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;';
+
+  DRINKS_ITEMS.forEach(function(item) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,185,106,.1);';
+
+    var lbl = document.createElement('label');
+    lbl.style.cssText = 'font-size:13px;color:var(--text);';
+    lbl.textContent = item;
+
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.inputMode = 'numeric';
+    inp.placeholder = '0';
+    inp.dataset.item = item;
+    inp.style.cssText = 'width:64px;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:8px 10px;color:var(--gold);font-family:var(--sans);font-size:14px;font-weight:700;text-align:center;outline:none;';
+
+    row.appendChild(lbl);
+    row.appendChild(inp);
+    grid.appendChild(row);
+  });
+
+  list.appendChild(grid);
+}
+
+function getDrinksOrderData() {
+  var result = [];
+  document.querySelectorAll('#drinks-order-list input').forEach(function(inp) {
+    var val = inp.value.trim();
+    if (val && val !== '0') result.push({ item: inp.dataset.item, qty: val });
+  });
   return result;
 }
 
@@ -1111,6 +1383,19 @@ function setNoChefOff() {
   document.getElementById('half-day-section').style.display = 'none';
 }
 
+function toggleHalfDay() {
+  var sec = document.getElementById('half-day-section');
+  if (!sec) return;
+  var opening = sec.style.display === 'none' || sec.style.display === '';
+  sec.style.display = opening ? 'block' : 'none';
+  var btn = document.getElementById('btn-half-day-toggle');
+  if (btn) {
+    btn.style.background = opening ? 'rgba(201,185,106,.15)' : 'var(--green-mid)';
+    btn.style.color = opening ? 'var(--gold)' : 'var(--muted)';
+    btn.style.borderColor = opening ? 'var(--gold)' : 'var(--border)';
+    btn.textContent = opening ? '− Half Day' : '+ Half Day';
+  }
+}
 function showHalfDayPicker() {
   var sec = document.getElementById('half-day-section');
   sec.style.display = sec.style.display === 'none' ? 'block' : 'none';
@@ -1151,12 +1436,11 @@ function setFloatForSite(site) {
   floatEl.value = '£' + defaultFloat.toFixed(2);
   hint.textContent = 'Default float for ' + site.charAt(0).toUpperCase() + site.slice(1) + ': £' + defaultFloat.toFixed(2);
 
-  // Check for pending negative float from previous day
-  var pending = localStorage.getItem('pendingNegativeFloat_' + site);
-  if (pending) {
-    try {
-      var p = JSON.parse(pending);
-      // Auto-add to petty cash
+  // Check for pending negative float from previous day — fetched from Sheets (device-independent)
+  fetch(SHEETS_WEBHOOK_URL + '?action=getNegativeFloat&site=' + encodeURIComponent(site))
+    .then(function(r) { return r.json(); })
+    .then(function(p) {
+      if (!p || !p.amount) return;
       var pettyList = document.getElementById('petty-list');
       var exists = false;
       pettyList.querySelectorAll('input[type="text"]').forEach(function(inp) {
@@ -1175,13 +1459,16 @@ function setFloatForSite(site) {
         pettyRow.appendChild(itemInp); pettyRow.appendChild(amtInp);
         pettyRow.appendChild(makeRemoveBtn('petty-list', pettyRow));
         pettyList.insertBefore(pettyRow, pettyList.firstChild);
-        // Clear the pending flag
-        localStorage.removeItem('pendingNegativeFloat_' + site);
         hint.textContent += ' — ⚠ Negative float carried over';
         hint.style.color = 'var(--amber)';
+        // Clear the flag now it has been applied
+        fetch(SHEETS_WEBHOOK_URL, {
+          method: 'POST', mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'clearNegativeFloat', site: site })
+        });
       }
-    } catch(e) {}
-  }
+    }).catch(function(e) { console.warn('Float check failed:', e); });
 }
 
 // -- IMAGE UPLOAD HANDLERS ------------------------------------------
@@ -1310,69 +1597,86 @@ function handleDeliveryDrop(event) {
 }
 
 async function analyseDeliveryImage() {
-  var imgBase64 = window._deliveryImageBase64;
-  var mediaType = window._deliveryMediaType || 'image/jpeg';
+  var imgs = window._deliveryImages || [];
+  var imgBase64 = imgs.length ? imgs[0].base64 : (window._deliveryImageBase64 || '');
+  var mediaType = imgs.length ? (imgs[0].mediaType || 'image/jpeg') : (window._deliveryMediaType || 'image/jpeg');
   var btn = document.getElementById('delivery-analyse-btn');
   var status = document.getElementById('delivery-analysis-status');
-  if (!imgs.length && !imgBase64) { if (status) { status.textContent = '⚠ No screenshots uploaded'; status.style.color='var(--red)'; } return; }
-  if (!window._anthropicKey) { if (status) { status.textContent = '⚠ No API key — enter via View Reports first'; status.style.color='var(--red)'; } return; }
+  if (!imgs.length && !imgBase64) { if (status) { status.textContent = '\u26a0 No screenshots uploaded'; status.style.color='var(--red)'; } return; }
 
-  if (btn) { btn.textContent = '⏳ Analysing deliveries...'; btn.disabled = true; }
-  if (status) { status.textContent = 'Reading delivery list...'; status.style.color = 'var(--muted)'; }
+  if (btn) { btn.textContent = '\u23f3 Analysing...'; btn.disabled = true; }
 
+  var allImgs = imgs.length ? imgs : [{ base64: imgBase64, mediaType: mediaType }];
   var siteAddr = (window.SITE_ADDRESSES && currentSite) ? (window.SITE_ADDRESSES[currentSite] || '') : '';
+  var prompt = 'This is one page of an Orderlord delivery list. Extract EVERY delivery visible on THIS page only. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"driver": "Jason Hyde", "address": "14 High Street, Bridport", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each row: driver = courier name exactly as shown, address = full delivery address, miles = estimated distance from restaurant at ' + siteAddr + ', payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash payment). No markdown, no explanation, just JSON.';
+
+  if (status) { status.textContent = 'Analysing ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + ' in parallel...'; status.style.color = 'var(--muted)'; }
+
+  // Send ONE image per request in parallel — avoids body size limit
+  var fetchPromises = allImgs.map(function(img, idx) {
+    return fetch('/.netlify/functions/ai-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.base64 } },
+          { type: 'text', text: prompt }
+        ]}]
+      })
+    })
+    .then(function(r) {
+      if (!r.ok) { console.warn('Delivery img ' + idx + ' HTTP ' + r.status); return []; }
+      return r.json();
+    })
+    .then(function(data) {
+      if (!data || data.error) { console.warn('Delivery img ' + idx + ' error:', data); return []; }
+      var txt = (data.content && data.content[0]) ? data.content[0].text || '' : '';
+      var jsonObjs = [], depth = 0, start = -1;
+      for (var ci = 0; ci < txt.length; ci++) {
+        if (txt[ci] === '{') { if (depth === 0) start = ci; depth++; }
+        else if (txt[ci] === '}') { depth--; if (depth === 0 && start >= 0) { jsonObjs.push(txt.substring(start, ci+1)); start = -1; } }
+      }
+      for (var ji = jsonObjs.length - 1; ji >= 0; ji--) {
+        try { var p = JSON.parse(jsonObjs[ji]); if (p.deliveries) return p.deliveries; } catch(e) {}
+      }
+      return [];
+    })
+    .catch(function(e) { console.warn('Delivery img ' + idx + ' fetch err:', e); return []; });
+  });
 
   try {
-    var resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': window._anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
-        messages: [{ role: 'user', content: (function() {
-          var allImgs = (window._deliveryImages && window._deliveryImages.length) ? window._deliveryImages : [{ base64: imgBase64, mediaType: mediaType }];
-          var parts = [];
-          allImgs.forEach(function(img) {
-            parts.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.base64 } });
-          });
-          parts.push({ type: 'text', text: 'These are ' + allImgs.length + ' page(s) of an Orderlord delivery list. Extract EVERY delivery from ALL pages. Return ONLY valid JSON: {"deliveries": [{"driver": "Jason Hyde", "address": "14 High Street, Bridport", "miles": 2.1}]}. Restaurant is at ' + siteAddr + '. Estimate distance if not shown. Combine ALL deliveries from all pages. No markdown, no explanation, just JSON.' });
-          return parts;
-        })() }]
-      })
+    var results = await Promise.all(fetchPromises);
+    var allDeliveries = [];
+    results.forEach(function(r) { allDeliveries = allDeliveries.concat(r || []); });
+
+    // Deduplicate by customer+driver combo
+    var seen = {};
+    var deliveries = allDeliveries.filter(function(d) {
+      var key = ((d.driver||'') + '|' + (d.address||'')).toLowerCase().trim();
+      if (!key || key === '|') return false;
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
     });
-    var data = await resp.json();
-    var txt = (data.content && data.content[0]) ? data.content[0].text : '';
-    var jsonObjs = [], depth = 0, startIdx = -1;
-    for (var ci = 0; ci < txt.length; ci++) {
-      if (txt[ci] === '{') { if (depth===0) startIdx=ci; depth++; }
-      else if (txt[ci] === '}') { depth--; if (depth===0 && startIdx>=0) { jsonObjs.push(txt.substring(startIdx,ci+1)); startIdx=-1; } }
-    }
-    var parsed = null;
-    for (var j = jsonObjs.length-1; j>=0; j--) {
-      try { var t = JSON.parse(jsonObjs[j]); if (t.deliveries) { parsed=t; break; } } catch(ex) {}
-    }
-    if (parsed && parsed.deliveries && parsed.deliveries.length > 0) {
-      populateDriversFromScreenshot(parsed.deliveries);
-      if (status) { status.textContent = '✓ Found ' + parsed.deliveries.length + ' deliveries — drivers and fuel calculated below. Also running late order check...'; status.style.color = 'var(--green-acc)'; }
-      // Also use this same image for late orders analysis
-      window._lateImages = [{ base64: imgBase64, mediaType: mediaType }];
-      var lateBtn = document.getElementById('late-analyse-btn');
+
+    if (deliveries.length > 0) {
+      populateDriversFromScreenshot(deliveries);
+      if (status) { status.textContent = '\u2713 Found ' + deliveries.length + ' deliveries across ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + ' — drivers and fuel calculated below.'; status.style.color = 'var(--green-acc)'; }
+      window._lateImages = allImgs.slice(0, 2); // use first 2 pages for late orders
       var lateBtnWrap = document.getElementById('late-analyse-btn-wrap');
       if (lateBtnWrap) lateBtnWrap.style.display = 'block';
-      // Auto-trigger late orders analysis
       setTimeout(function() { analyseLateImage(); }, 500);
     } else {
-      if (status) { status.textContent = '⚠ Could not read deliveries — add drivers manually below'; status.style.color = 'var(--red)'; }
+      if (status) { status.textContent = '\u26a0 Could not read deliveries — add drivers manually below'; status.style.color = 'var(--red)'; }
     }
   } catch(err) {
-    if (status) { status.textContent = '⚠ Error: ' + err.message; status.style.color = 'var(--red)'; }
+    if (status) { status.textContent = '\u26a0 Error: ' + err.message; status.style.color = 'var(--red)'; }
   }
-  if (btn) { btn.textContent = '✓ Analysed — Re-analyse'; btn.disabled = false; }
+
+  if (btn) { btn.textContent = '\u2713 Analysed \u2014 Re-analyse'; btn.disabled = false; }
+  window._deliveryAnalysed = true;
 }
 
 function handleReportDrop(e) {
@@ -1498,13 +1802,12 @@ async function analyseLateImage() {
   var images = window._lateImages || [];
 
   if (!images.length) { status.textContent = '\u26a0 No images uploaded.'; return; }
-  if (!window._anthropicKey) { status.textContent = '\u26a0 No API key \u2014 enter via View Reports first.'; return; }
 
   btn.textContent = '\u23f3 Analysing...';
   btn.disabled = true;
 
   var allOrders = [];
-  var prompt = 'Look at this Orderlord orders table. The Arrived column contains times with brackets like (+35) or (+28) showing minutes late. Output a JSON object listing every customer where the bracket number is strictly greater than 25. Output the JSON object and absolutely nothing else — no explanation, no commentary, no re-checking, just the raw JSON. Format: {"late_orders": [{"customer_name": "Zoe Harvey", "minutes_late": 35}]}. If none qualify: {"late_orders": []}';
+  var prompt = 'Look at this Orderlord orders table. Find the Arrived column — it contains timestamps with a number in brackets like (+10) or (+35). This number is the minutes late. I only want orders where this bracket number is STRICTLY GREATER THAN 25 — meaning 26 or more. Do NOT include orders where the number is 25 or less. Do NOT include orders with no bracket number. Output a JSON object and absolutely nothing else. Format: {"late_orders": [{"customer_name": "Zoe Harvey", "minutes_late": 35}]}. If no orders qualify with more than 25 minutes: {"late_orders": []}';
 
   // Clear previous results before new analysis
   var listEl = document.getElementById('late-list');
@@ -1512,13 +1815,10 @@ async function analyseLateImage() {
   status.textContent = 'Analysing ' + images.length + ' screenshot' + (images.length > 1 ? 's' : '') + ' in parallel...';
 
   var fetchPromises = images.map(function(img, idx) {
-    return fetch('https://api.anthropic.com/v1/messages', {
+    return fetch('/.netlify/functions/ai-proxy', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': window._anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
@@ -1692,13 +1992,10 @@ async function analyseReportImage() {
   const selectedDate = document.getElementById('f-date').value;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('/.netlify/functions/ai-proxy', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'x-api-key': window._anthropicKey || '',
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
@@ -1847,6 +2144,9 @@ function populateReportData(d, selectedDate) {
   } else {
     document.getElementById('check-payment-section').style.display = 'none';
   }
+
+  // If PS was already analysed, refresh the match now Orderlord data is available
+  refreshPsMatchIfNeeded();
 }
 
 // -- CHECK PAYMENT ORDERS ------------------------------------------
@@ -1903,13 +2203,10 @@ async function analysePsImage() {
   const psOrderlordAmt = parseFloat(extractedReportData.paymentsense_online_amount || 0);
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('/.netlify/functions/ai-proxy', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'x-api-key': window._anthropicKey || '',
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
@@ -1963,44 +2260,102 @@ function populatePsData(d, selectedDate, psOrderlordAmt) {
   const psTotal = parseFloat(d.total || 0);
   document.getElementById('ps-total-extracted').textContent = '£' + psTotal.toFixed(2);
   document.getElementById('ps-date-extracted').textContent = d.transaction_date || '—';
-  document.getElementById('ps-orderlord-amount').textContent = psOrderlordAmt > 0 ? '£' + psOrderlordAmt.toFixed(2) : 'Not extracted';
+
+  // Always try to get Orderlord PS amount from extractedReportData if not passed in
+  var olAmt = psOrderlordAmt;
+  if (!olAmt && extractedReportData && extractedReportData.paymentsense_online_amount) {
+    olAmt = parseFloat(extractedReportData.paymentsense_online_amount || 0);
+  }
+  // Also check bar card — some sites use bar card machine as the PS amount
+  if (!olAmt && extractedReportData && extractedReportData.orderlord_bar_card) {
+    olAmt = parseFloat(extractedReportData.orderlord_bar_card || 0);
+  }
+  document.getElementById('ps-orderlord-amount').textContent = olAmt > 0 ? '£' + olAmt.toFixed(2) : 'Not extracted';
 
   // Date check
   const dateErrEl = document.getElementById('ps-date-error');
   if (d.transaction_date && selectedDate) {
     const sel = new Date(selectedDate);
-    const selStr = `${String(sel.getDate()).padStart(2,'0')}/${String(sel.getMonth()+1).padStart(2,'0')}/${sel.getFullYear()}`;
-    if (d.transaction_date !== selStr) {
-      dateErrEl.textContent = `⚠ Date mismatch — selected: ${selStr}, screenshot: ${d.transaction_date}. Please re-upload the correct screenshot.`;
+    const selStr = String(sel.getDate()).padStart(2,'0') + '/' + String(sel.getMonth()+1).padStart(2,'0') + '/' + sel.getFullYear();
+    var normReport = (d.transaction_date || '').replace(/[.\-]/g,'/');
+    if (normReport && normReport !== selStr) {
+      dateErrEl.textContent = '\u26a0 Date mismatch \u2014 EOD date: ' + selStr + ', PS screenshot: ' + d.transaction_date + '. Please check you have the right screenshot.';
       dateErrEl.style.display = 'block';
     } else {
       dateErrEl.style.display = 'none';
     }
   }
 
-  // Amount match
+  // Show "no transactions" section if PS total is zero
+  var noTxWrap = document.getElementById('ps-no-transactions-wrap');
+  var quietPanel = document.getElementById('ps-no-tx-quiet');
+  var missingPanel = document.getElementById('ps-no-tx-missing');
+  if (psTotal === 0) {
+    if (noTxWrap) noTxWrap.style.display = 'block';
+    window._psNoTransactions = false; // reset until confirmed
+    if (olAmt > 0) {
+      // Orderlord expects money but PS has nothing — missing payment
+      if (quietPanel) quietPanel.style.display = 'none';
+      if (missingPanel) missingPanel.style.display = 'block';
+      var missingAmtEl = document.getElementById('ps-missing-amount');
+      if (missingAmtEl) missingAmtEl.textContent = 'Orderlord expected £' + olAmt.toFixed(2) + ' from Paymentsense — this has not been received.';
+      window._psMissingPayment = true;
+    } else {
+      // Both zero — genuinely quiet night, just confirm
+      if (quietPanel) quietPanel.style.display = 'block';
+      if (missingPanel) missingPanel.style.display = 'none';
+      window._psMissingPayment = false;
+    }
+  } else {
+    if (noTxWrap) noTxWrap.style.display = 'none';
+    window._psMissingPayment = false;
+  }
+
+  // Amount match — covers all combinations including PS=0 with OL amount
   const matchEl = document.getElementById('ps-match-status');
-  const orderlordAmtEl = document.getElementById('ps-orderlord-amount');
-  if (psOrderlordAmt > 0 && psTotal > 0) {
-    const diff = Math.abs(psTotal - psOrderlordAmt);
+  const discrepancyField = document.getElementById('ps-discrepancy-field');
+  const discrepancyLabel = discrepancyField ? discrepancyField.querySelector('label') : null;
+
+  if (olAmt > 0 && psTotal > 0) {
+    const diff = Math.abs(psTotal - olAmt);
     if (diff < 0.01) {
-      matchEl.textContent = '✓ Match';
+      matchEl.textContent = '\u2713 Match \u2014 PS total matches Orderlord';
       matchEl.style.color = 'var(--green-acc)';
       matchEl.style.fontWeight = '700';
-      document.getElementById('ps-discrepancy-field').style.display = 'none';
+      if (discrepancyField) discrepancyField.style.display = 'none';
     } else {
-      matchEl.textContent = `⚠ Mismatch — differs by £${diff.toFixed(2)}`;
+      const higher = psTotal > olAmt ? 'PS' : 'Orderlord';
+      matchEl.textContent = '\u26a0 Mismatch \u2014 \u00a3' + diff.toFixed(2) + ' difference (' + higher + ' is higher)';
       matchEl.style.color = 'var(--red)';
       matchEl.style.fontWeight = '700';
-      document.getElementById('ps-discrepancy-field').style.display = 'block';
+      if (discrepancyField) discrepancyField.style.display = 'block';
+      if (discrepancyLabel) discrepancyLabel.textContent = '\u26a0 PS total \u00a3' + psTotal.toFixed(2) + ' vs Orderlord \u00a3' + olAmt.toFixed(2) + ' (\u00a3' + diff.toFixed(2) + ' difference) \u2014 explain below';
     }
-  } else if (psTotal > 0 && psOrderlordAmt === 0) {
-    matchEl.textContent = 'Run Orderlord analysis first';
+  } else if (psTotal === 0 && olAmt > 0) {
+    // PS received nothing but Orderlord expected a payment — missing payment
+    matchEl.textContent = '\u26a0 Missing \u2014 PS received \u00a30.00 but Orderlord expected \u00a3' + olAmt.toFixed(2);
+    matchEl.style.color = 'var(--red)';
+    matchEl.style.fontWeight = '700';
+    if (discrepancyField) discrepancyField.style.display = 'block';
+    if (discrepancyLabel) discrepancyLabel.textContent = '\u26a0 Paymentsense received \u00a30.00 — Orderlord expected \u00a3' + olAmt.toFixed(2) + ' (\u00a3' + olAmt.toFixed(2) + ' unaccounted) \u2014 explain below';
+  } else if (psTotal > 0 && olAmt === 0) {
+    matchEl.textContent = '\u26a0 Run Orderlord analysis first to compare';
     matchEl.style.color = 'var(--amber)';
     matchEl.style.fontWeight = '400';
+    if (discrepancyField) discrepancyField.style.display = 'none';
   } else {
-    matchEl.textContent = '—';
+    matchEl.textContent = '\u2014';
     matchEl.style.color = 'var(--muted)';
+    if (discrepancyField) discrepancyField.style.display = 'none';
+  }
+}
+
+// Re-run PS match if Orderlord data arrives after PS was already analysed
+function refreshPsMatchIfNeeded() {
+  if (extractedPsData && extractedPsData.total && extractedReportData && extractedReportData.expected_turnover) {
+    var selectedDate = document.getElementById('f-date') ? document.getElementById('f-date').value : '';
+    var olAmt = parseFloat(extractedReportData.paymentsense_online_amount || 0);
+    populatePsData(extractedPsData, selectedDate, olAmt);
   }
 }
 // -- PINS — change these to your preferred codes ------------------
@@ -2010,7 +2365,7 @@ const PINS = {
   rivaaz:     '2003',
   dashboard:  '1234'  // Samantha & Mashayel only
 };
-let selectedLocation = '';
+// selectedLocation declared in early bridge block above
 
 // -- STORAGE -------------------------------------------------------
 function getReports() {
@@ -2033,40 +2388,7 @@ function goToNewReport() {
   // Return to login screen for fresh location selection
   resetForm();
 }
-function selectLocation(loc) {
-  selectedLocation = loc;
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  document.getElementById('loc-' + loc).classList.add('selected');
-  const labels = { bridport: 'Bridport', dorchester: 'Dorchester', rivaaz: 'Rivaaz Lymington' };
-  document.getElementById('login-pin-title').textContent = labels[loc];
-  document.getElementById('login-pin-sub').textContent = 'Enter your PIN to continue';
-  document.getElementById('login-pin-box').style.display = 'block';
-  document.getElementById('login-pin-input').value = '';
-  document.getElementById('login-pin-error').textContent = '';
-  setTimeout(() => document.getElementById('login-pin-input').focus(), 100);
-}
-
-function clearLocationSelection() {
-  selectedLocation = '';
-  document.querySelectorAll('.login-loc-btn').forEach(b => b.classList.remove('selected'));
-  document.getElementById('login-pin-box').style.display = 'none';
-  document.getElementById('login-pin-input').value = '';
-}
-
-function checkLocationPin() {
-  const val = document.getElementById('login-pin-input').value;
-  if (val.length < 4) return;
-  if (val === PINS[selectedLocation]) {
-    document.getElementById('login-overlay').classList.add('hidden');
-    // Show New Report button (View Reports always visible)
-    document.getElementById('nav-new-report').style.display = 'block';
-    showView('form');
-    setTimeout(() => selectSite(selectedLocation), 100);
-  } else {
-    document.getElementById('login-pin-error').textContent = 'Incorrect PIN. Try again.';
-    document.getElementById('login-pin-input').value = '';
-  }
-}
+// login functions defined in early bridge block above
 
 document.getElementById('login-pin-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') checkLocationPin();
@@ -2250,7 +2572,19 @@ function selectSite(site) {
   document.getElementById('deposits-section').style.display = isDorch ? 'none' : 'block';
   document.getElementById('covers-field') && (document.getElementById('covers-field').style.display = (currentSite === 'dorchester') ? 'none' : 'block');
   document.getElementById('cash-correct-toggle').style.display = isDorch ? 'block' : 'none';
-  document.getElementById('ps-section').style.display = isDorch ? 'none' : 'block';
+  document.getElementById('takings-location-section').style.display = 'block';
+  var isNonPS = isDorch || site === 'rivaaz';
+  var openingEl = document.getElementById('opening-checklist-section');
+  if (openingEl) openingEl.style.display = isDorch ? 'block' : 'none';
+  document.getElementById('ps-section').style.display = isNonPS ? 'none' : 'block';
+
+  // Drinks stock section — Bridport Sunday only (check date field)
+  var drinksStockEl = document.getElementById('drinks-stock-section');
+  if (drinksStockEl) {
+    var dateEl2 = document.getElementById('f-date');
+    var checkDate = dateEl2 && dateEl2.value ? new Date(dateEl2.value) : new Date();
+    drinksStockEl.style.display = (site === 'bridport' && checkDate.getDay() === 0) ? 'block' : 'none';
+  }
   // Update order/table placeholders based on site
   document.querySelectorAll('.staff-error-row input:first-of-type').forEach(function(inp) {
     inp.placeholder = isDorch ? 'Order #' : 'Order/Table #';
@@ -2259,11 +2593,22 @@ function selectSite(site) {
   // Build date dropdown and set float
   buildDateDropdown();
   buildCkStockSection(site);
+  var _dateVal = document.getElementById('f-date') ? document.getElementById('f-date').value : '';
+  buildDrinksOrderSection(site, _dateVal);
   // Re-check delivery day when date changes
   var dateDropdown = document.getElementById('f-date');
   if (dateDropdown && !dateDropdown._ckListener) {
     dateDropdown._ckListener = true;
-    dateDropdown.addEventListener('change', function() { buildCkStockSection(currentSite); });
+    dateDropdown.addEventListener('change', function() {
+      buildCkStockSection(currentSite);
+      buildDrinksOrderSection(currentSite, this.value);
+      // Show drinks stock section on Bridport Sunday
+      var dsEl = document.getElementById('drinks-stock-section');
+      if (dsEl) {
+        var d = this.value ? new Date(this.value) : new Date();
+        dsEl.style.display = (currentSite === 'bridport' && d.getDay() === 0) ? 'block' : 'none';
+      }
+    });
   }
   setFloatForSite(site);
 
@@ -2312,10 +2657,26 @@ function to24Hour(str) {
 
 function calcHours(start, end) {
   try {
-    var s = start.split(':'), e = end.split(':');
-    var sh = parseInt(s[0]), sm = parseInt(s[1])||0;
-    var eh = parseInt(e[0]), em = parseInt(e[1])||0;
-    var total = (eh * 60 + em) - (sh * 60 + sm);
+    function parseTime(t) {
+      if (!t) return null;
+      // Normalise: remove am/pm, replace . with :
+      var clean = t.toLowerCase().replace('am','').replace('pm', function(m, offset, str) {
+        return str.toLowerCase().includes('pm') ? '__pm' : '';
+      }).trim();
+      // handle 10.30pm style
+      var isPM = t.toLowerCase().includes('pm');
+      var isAM = t.toLowerCase().includes('am');
+      clean = t.replace(/[aApP][mM]/g,'').trim().replace('.', ':');
+      var parts = clean.split(':');
+      var h = parseInt(parts[0]) || 0;
+      var m = parseInt(parts[1]) || 0;
+      if (isPM && h < 12) h += 12;
+      if (isAM && h === 12) h = 0;
+      return h * 60 + m;
+    }
+    var sMin = parseTime(start), eMin = parseTime(end);
+    if (sMin === null || eMin === null) return '';
+    var total = eMin - sMin;
     if (total < 0) total += 24 * 60;
     return (total / 60).toFixed(2);
   } catch(e) { return ''; }
@@ -2701,7 +3062,7 @@ function addPetty() {
   amtInp.inputMode = 'decimal';
   amtInp.placeholder = '£0.00';
   amtInp.style.maxWidth = '100px';
-  amtInp.setAttribute('oninput', 'formatCurrency(this)');
+  amtInp.setAttribute('oninput', 'formatCurrency(this);updateExpectedCash();');
   row.appendChild(itemInp);
   row.appendChild(amtInp);
   row.appendChild(makeRemoveBtn('petty-list', row));
@@ -2753,25 +3114,42 @@ function getListValues(listId, selector) {
 }
 
 function getDrivers() {
-  const rows = document.querySelectorAll('#driver-list .driver-row');
-  const drivers = [];
-  rows.forEach(row => {
-    const inputs = row.querySelectorAll('input');
-    const name = inputs[0].value.trim();
-    const amount = inputs[1].value.trim();
-    if (name) drivers.push({ name, amount: amount || '0' });
+  var drivers = [];
+  document.querySelectorAll('#driver-list .ai-driver-row').forEach(function(row) {
+    var name=( row.dataset.driverName||'').trim();
+    var fuelEl=row.querySelector('.drv-fuel'),wageEl=row.querySelector('.drv-wage');
+    var startEl=row.querySelector('.drv-start'),endEl=row.querySelector('.drv-end');
+    var fuel=fuelEl?fuelEl.value.replace(/[£]/g,'').trim():'0';
+    var wage=wageEl?wageEl.value.replace(/[£]/g,'').trim():'0';
+    var cashBtn=row.querySelector('[data-cash-received]');
+    var cashReceived=cashBtn?cashBtn.dataset.cashReceived==='true':null;
+    var cashTotal=0; row.querySelectorAll('.cash-order-amount').forEach(function(el){cashTotal+=parseFloat(el.dataset.amount||0);});
+    if(name) drivers.push({name:name,fuel:fuel||'0',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():'',cashReceived:cashReceived,cashTotal:cashTotal>0?cashTotal:null});
+  });
+  document.querySelectorAll('#driver-list .driver-row:not(.ai-driver-row)').forEach(function(row) {
+    var name='';
+    var sel=row.querySelector('select');
+    if(sel&&sel.value&&sel.value!==''&&sel.value!=='__manual__'){name=sel.value.trim();}
+    if(!name){var inps=row.querySelectorAll('input[type="text"]');for(var i=0;i<inps.length;i++){var cls=inps[i].className||'';if(cls.indexOf('drv-')===-1&&inps[i].style.display!=='none'&&inps[i].value.trim()){name=inps[i].value.trim();break;}}}
+    var fuelEl=row.querySelector('.drv-fuel'),wageEl=row.querySelector('.drv-wage');
+    var fuel=fuelEl?fuelEl.value.replace(/[£]/g,'').trim():'0';
+    var wage=wageEl?wageEl.value.replace(/[£]/g,'').trim():'0';
+    if(name) drivers.push({name:name,fuel:fuel||'0',wage:wage||'0',amount:fuel||'0',start:'',end:''});
   });
   return drivers;
 }
 
 function getStaff() {
-  const rows = document.querySelectorAll('#staff-list .driver-row');
-  const staff = [];
-  rows.forEach(row => {
-    const inputs = row.querySelectorAll('input');
-    const name = inputs[0].value.trim();
-    const hours = inputs[1].value.trim();
-    if (name) staff.push({ name, hours });
+  var staff=[];
+  document.querySelectorAll('#staff-list .driver-row').forEach(function(row) {
+    var nameEl=row.querySelector('.stf-name'),startEl=row.querySelector('.stf-start');
+    var endEl=row.querySelector('.stf-end'),hoursEl=row.querySelector('.stf-hours');
+    var name=nameEl?nameEl.value.trim():'';
+    var start=startEl?startEl.value.trim():'';
+    var end=endEl?endEl.value.trim():'';
+    var hours=hoursEl?hoursEl.value.trim():'';
+    if(!name){var inp=row.querySelectorAll('input');if(inp[0])name=inp[0].value.trim();if(inp[1])start=inp[1].value.trim();if(inp[2])end=inp[2].value.trim();if(inp[3])hours=inp[3].value.trim();}
+    if(name) staff.push({name:name,start:start,end:end,hours:hours});
   });
   return staff;
 }
@@ -2785,7 +3163,8 @@ function getLateOrdersData() {
     var mins = inputs[1] ? inputs[1].value.trim() : (row.dataset.mins + ' mins') || '';
     var reason = row._reasonInp ? row._reasonInp.value.trim() : '';
     var happy = row.dataset.happy === 'yes' ? true : row.dataset.happy === 'no' ? false : undefined;
-    if (customer || mins) result.push({ order: customer, mins: mins, reason: reason, happy: happy });
+    var contacted = row.dataset.updated === 'yes' ? true : row.dataset.updated === 'no' ? false : undefined;
+    if (customer || mins) result.push({ order: customer, mins: mins, reason: reason, happy: happy, contacted: contacted });
   });
   // Manually added rows
   document.querySelectorAll('#late-list > div[style*="grid-template-columns:auto 1fr 1fr auto auto"]').forEach(function(row) {
@@ -2870,15 +3249,187 @@ function getDeposits() {
 function submitReport() {
   if (!currentSite) { alert('Please select a site first.'); return; }
 
+  // Validate Orderlord Daily Report — must be uploaded AND analysed
+  if (!reportImageBase64 && !window._reportImageBase64) {
+    alert('\u26a0 Please upload the Orderlord Daily Report screenshot before submitting.');
+    var area = document.getElementById('report-upload-area');
+    if (area) { area.scrollIntoView({ behavior: 'smooth', block: 'center' }); area.style.borderColor = 'var(--red)'; setTimeout(function(){ area.style.borderColor=''; }, 3000); }
+    return;
+  }
+  if (!extractedReportData || !extractedReportData.expected_turnover) {
+    alert('\u26a0 Please run the Orderlord AI analysis before submitting.\nTap \"Analyse screenshot with AI\" under the Daily Report screenshot.');
+    var analyseBtn = document.getElementById('report-analyse-btn');
+    if (analyseBtn) { analyseBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); analyseBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ analyseBtn.style.background=''; }, 3000); }
+    return;
+  }
+
   // Validate chef off
   if (!validateChefOff()) return;
 
   // Validate dext/whatsapp on delivery days
   var dextWrap = document.getElementById('dext-wrap');
   if (dextWrap && dextWrap.style.display !== 'none' && !window._dextValue) {
-    alert('⚠ Please confirm whether the supplier invoice was uploaded to WhatsApp.');
+    alert('\u26a0 Delivery day — please confirm whether the supplier invoice was uploaded to WhatsApp before submitting.');
     dextWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    dextWrap.style.border = '1.5px solid var(--red)';
+    setTimeout(function(){ dextWrap.style.border = ''; }, 3000);
     return;
+  }
+
+  // Validate supplier invoice (dext) — warn but don't block if not a delivery day
+  // Already handled above — only on delivery days
+
+  // Validate cash received — flag any driver with cash orders not confirmed
+  var cashMissingDrivers = [];
+  document.querySelectorAll('#driver-list .ai-driver-row').forEach(function(row) {
+    var cashBtn = row.querySelector('.cash-received-btn');
+    if (cashBtn && cashBtn.dataset.cashReceived !== 'true') {
+      // Has a cash banner but not confirmed
+      var cashBanner = row.querySelector('[style*="border:1.5px solid var(--gold)"]');
+      if (cashBanner) {
+        var driverName = row.dataset.driverName || 'Unknown driver';
+        var cashAmts = row.querySelectorAll('.cash-order-amount');
+        var total = 0;
+        cashAmts.forEach(function(el){ total += parseFloat(el.dataset.amount || 0); });
+        if (total > 0) cashMissingDrivers.push({ name: driverName, total: total });
+      }
+    }
+  });
+  if (cashMissingDrivers.length > 0) {
+    var msg = '\u26a0 Cash payment not confirmed for:\n\n';
+    cashMissingDrivers.forEach(function(d){ msg += '\u2022 ' + d.name + ' \u2014 \u00a3' + d.total.toFixed(2) + '\n'; });
+    msg += '\nHave you received this cash? Please tap "Cash received?" on each driver before submitting.';
+    alert(msg);
+    var firstCashBanner = document.querySelector('.cash-received-btn');
+    if (firstCashBanner) firstCashBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  // Validate cash takings — mandatory (must be entered, even if 0)
+  var cashEl = document.getElementById('f-cash');
+  if (!cashEl || cashEl.value === '' || cashEl.value === null) {
+    alert('⚠ Please enter cash takings before submitting. Enter £0.00 if no cash taken.');
+    if (cashEl) { cashEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); cashEl.focus(); }
+    return;
+  }
+
+  // Validate covers — mandatory for Bridport and Rivaaz
+  if (currentSite !== 'dorchester') {
+    var coversEl = document.getElementById('f-covers');
+    if (!coversEl || coversEl.value === '' || coversEl.value === null) {
+      alert('\u26a0 Please enter covers before submitting. Enter 0 if no dine-in covers.');
+      if (coversEl) { coversEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); coversEl.focus(); }
+      return;
+    }
+  }
+
+  // Validate delivery screenshot — must be uploaded AND analysed
+  var delivImgs = window._deliveryImages || [];
+  if (!delivImgs.length && !window._deliveryImageBase64) {
+    alert('\u26a0 Please upload the Orderlord Delivery List screenshot before submitting.');
+    var dArea = document.getElementById('delivery-upload-area');
+    if (dArea) { dArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); dArea.style.borderColor = 'var(--red)'; setTimeout(function(){ dArea.style.borderColor=''; }, 3000); }
+    return;
+  }
+  if (!window._deliveryAnalysed) {
+    alert('\u26a0 Please run the Delivery List AI analysis before submitting.\nTap \"Analyse Deliveries with AI\" under the delivery screenshot.');
+    var dBtn = document.getElementById('delivery-analyse-btn');
+    if (dBtn) { dBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); dBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ dBtn.style.background=''; }, 3000); }
+    return;
+  }
+
+  // Validate Paymentsense — must be uploaded AND analysed (Bridport only)
+  if (currentSite === 'bridport') {
+    if (!psImageBase64 && !window._psImageBase64) {
+      alert('\u26a0 Please upload the Paymentsense Transaction History screenshot before submitting.');
+      var pArea = document.getElementById('ps-upload-area');
+      if (pArea) { pArea.scrollIntoView({ behavior: 'smooth', block: 'center' }); pArea.style.borderColor = 'var(--red)'; setTimeout(function(){ pArea.style.borderColor=''; }, 3000); }
+      return;
+    }
+    if (!extractedPsData || !extractedPsData.total) {
+      // Allow through if total is 0 AND manager has confirmed no transactions
+      var psTotal = parseFloat((extractedPsData && extractedPsData.total) || 0);
+      if (psTotal === 0 && window._psMissingPayment) {
+        // PS=0 but OL expected payment — require explanation
+        var reason = document.getElementById('f-ps-missing-reason') ? document.getElementById('f-ps-missing-reason').value.trim() : '';
+        if (!reason) {
+          alert('\u26a0 Paymentsense shows \u00a30.00 but Orderlord expected a card payment. Please explain what happened in the field below the PS screenshot before submitting.');
+          var missingEl = document.getElementById('ps-no-tx-missing');
+          if (missingEl) { missingEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+          var reasonEl = document.getElementById('f-ps-missing-reason');
+          if (reasonEl) { reasonEl.style.borderColor = 'var(--red)'; reasonEl.focus(); setTimeout(function(){ reasonEl.style.borderColor=''; }, 3000); }
+          return;
+        }
+        // Has explanation — save it as discrepancy and allow through
+        var discEl = document.getElementById('f-ps-discrepancy');
+        if (discEl) discEl.value = 'MISSING PAYMENT: ' + reason;
+      } else if (psTotal === 0 && window._psNoTransactions === true) {
+        // confirmed quiet night — allowed
+      } else if (psTotal === 0 && extractedPsData && extractedPsData.transaction_date !== undefined) {
+        // analysed but zero — need confirmation
+        alert('\u26a0 Paymentsense shows \u00a30.00. If there were no card transactions tonight please confirm using the toggle below the PS screenshot.');
+        var noTxEl = document.getElementById('ps-no-transactions-wrap');
+        if (noTxEl) { noTxEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        return;
+      } else {
+        alert('\u26a0 Please run the Paymentsense AI analysis before submitting.\nTap \"Analyse screenshot with AI\" under the Paymentsense screenshot.');
+        var psBtn = document.getElementById('ps-analyse-btn');
+        if (psBtn) { psBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); psBtn.style.background = 'rgba(201,185,106,.25)'; setTimeout(function(){ psBtn.style.background=''; }, 3000); }
+        return;
+      }
+    }
+  }
+
+  // Validate fridge temps & checklists — mandatory all sites
+  if (!window._fridgeChecklist) {
+    alert('⚠ Please confirm whether the opening/closing checklists and fridge temp logs were completed before submitting.');
+    var fcEl = document.getElementById('fridge-checklist-section');
+    if (fcEl) fcEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  // Validate drinks stock — Bridport Sunday only
+  var drinksEl = document.getElementById('drinks-stock-section');
+  if (drinksEl && drinksEl.style.display !== 'none' && !window._drinksStock) {
+    alert('⚠ Please confirm whether the drinks stock list was sent to Sam before submitting.');
+    drinksEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  // Validate opening checklist — mandatory for Dorchester
+  if (currentSite === 'dorchester') {
+    if (!window._openingChecklist) {
+      alert('\u26a0 Please confirm whether the opening checklist was completed before submitting.');
+      var ocEl = document.getElementById('opening-checklist-section');
+      if (ocEl) ocEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (window._openingChecklist === 'no') {
+      var notes = document.getElementById('f-opening-checklist-notes');
+      if (!notes || !notes.value.trim()) {
+        alert('\u26a0 Please list the tasks not completed on the opening checklist before submitting.');
+        if (notes) { notes.scrollIntoView({ behavior: 'smooth', block: 'center' }); notes.focus(); }
+        return;
+      }
+    }
+  }
+
+  // Validate cash location — always mandatory regardless of amount
+  var locEl = document.getElementById('f-takings-location');
+  if (!locEl || !locEl.value) {
+    alert('⚠ Please select where the cash is kept before submitting.');
+    var locSec = document.getElementById('takings-location-section');
+    if (locSec) locSec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (locEl) { locEl.style.borderColor = 'var(--red)'; setTimeout(function(){ locEl.style.borderColor=''; }, 3000); }
+    return;
+  }
+  if (locEl.value === 'given') {
+    var givenToEl = document.getElementById('f-given-to');
+    if (!givenToEl || !givenToEl.value.trim()) {
+      alert('⚠ Please enter who the cash was given to before submitting.');
+      if (givenToEl) givenToEl.focus();
+      return;
+    }
   }
 
   // Block submission if duplicate date
@@ -2964,6 +3515,7 @@ function submitReport() {
       float: report.cashFloat,
       givenTo: report.givenTo,
       changeNeeded: report.changeNeeded,
+        changeDetail: document.getElementById('f-change-detail')?.value.trim() || '',
       expectedTurnover: extractedReportData.expected_turnover || '',
       orderlordCashExtracted: extractedReportData.orderlord_cash || '',
       orderlordBarCard: extractedReportData.orderlord_bar_card || '',
@@ -2998,7 +3550,14 @@ function submitReport() {
         return t.toFixed(2);
       })(),
       staff: getStaff(),
-      chefOff: report.chefOff,
+      chefOff: (function(){
+        if (window._noChefOff) return 'No chef off';
+        var offSel = document.getElementById('f-chef-off-select');
+        var halfSel = document.getElementById('f-chef-half-day-select');
+        var off = offSel ? Array.from(offSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value;}) : [];
+        var half = halfSel ? Array.from(halfSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value+' (half day)';}) : [];
+        return off.concat(half).join(', ') || 'No chef off';
+      })(),
       pettyItems: getPettyItems(),
       pettyTotal: (function(){
         var t = 0;
@@ -3016,9 +3575,16 @@ function submitReport() {
       deposits: getDeposits(),
       refunds: getRefundsData(),
       staffErrors: getStaffErrors(),
+      openingChecklistComplete: window._openingChecklist || '',
+      fridgeChecklistComplete: window._fridgeChecklist || '',
+      drinksStockSent: window._drinksStock || '',
+      openingChecklistNotes: (function(){ var el = document.getElementById('f-opening-checklist-notes'); return el ? el.value.trim() : ''; })(),
       ckStock: getCkStockData(),
+      drinksOrder: getDrinksOrderData(),
+    drinksOrder: getDrinksOrderData(),
       issues: getListValues('issue-list', 'textarea'),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
+      check_payment_orders: cpOrders,
       // ── Sheet-mapped fields (Apps Script v3 keys) ──
       action: 'submitEod',
       eod_date: report.date,
@@ -3035,7 +3601,7 @@ function submitReport() {
       avg_ticket: extractedReportData.average_ticket || '',
       discount: extractedReportData.discount || '',
       open_orders: extractedReportData.has_open_orders || '',
-      check_payment_total: (function(){ var t=0; document.querySelectorAll('#check-payment-orders-list .cp-amount').forEach(function(el){ t+=parseCurrency(el.value); }); return t>0?t.toFixed(2):''; })(),
+      check_payment_total: (function(){ var t=0; document.querySelectorAll('#check-payment-orders-list .cp-amount').forEach(function(el){ t+=parseCurrency(el.value); }); return t>0 ? t.toFixed(2) : ''; })(),
       ps_total: extractedPsData.total || '',
       ps_orderlord_amt: document.getElementById('ps-orderlord-amount') ? document.getElementById('ps-orderlord-amount').textContent.replace('£','') : '',
       ps_match: document.getElementById('ps-match-status') ? document.getElementById('ps-match-status').textContent : '',
@@ -3044,32 +3610,42 @@ function submitReport() {
       cash_correct: toggleStates.cash,
       drivers: getDrivers(),
       staff: getStaff(),
-      chef_day_off: report.chefOff,
+      chef_day_off: (function(){
+        if (window._noChefOff) return 'No chef off';
+        var offSel = document.getElementById('f-chef-off-select');
+        var halfSel = document.getElementById('f-chef-half-day-select');
+        var off = offSel ? Array.from(offSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value;}) : [];
+        var half = halfSel ? Array.from(halfSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value+' (half day)';}) : [];
+        return off.concat(half).join(', ') || 'No chef off';
+      })(),
       petty_cash_items: getPettyItems(),
       petty_cash_total: (function(){ var t=0; document.querySelectorAll('#petty-list .driver-row input:last-child').forEach(function(el){ t+=parseCurrency(el.value); }); return t>0?t.toFixed(2):''; })(),
       total_fuel_money: (function(){ var t=0; document.querySelectorAll('.drv-fuel').forEach(function(el){ t+=parseCurrency(el.value); }); return t.toFixed(2); })(),
       total_wage_money: (function(){ var t=0; document.querySelectorAll('.drv-wage').forEach(function(el){ t+=parseCurrency(el.value); }); return t.toFixed(2); })(),
       cash_in: report.cashIn,
+        takings_location: document.getElementById('f-takings-location')?.value || '',
+        covers: document.getElementById('f-covers')?.value || '',
       late_orders: getLateOrdersData(),
       discounts_errors: getDiscountsData(),
       stock_to_order: report.stock,
       wastage: report.wastage,
       table_deposits: getDeposits(),
       issues: getListValues('issue-list', 'textarea').join(' | '),
-      comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : ''
+      comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
+      check_payment_orders: cpOrders
+    };
     };
 
     fetch(SHEETS_WEBHOOK_URL, {
       method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
-    }).then(function() {
-      console.log('Sheets sync sent');
+    }).then(function(r) { return r.json(); })
+    .then(function(result) {
+      console.log('Sheets sync ok:', result);
     }).catch(function(err) {
       console.warn('Sheets sync failed (report saved locally):', err);
     });
-  }
 
   document.getElementById('form-content').style.display = 'none';
   document.getElementById('success-screen').classList.add('show');
@@ -3088,6 +3664,26 @@ function resetForm() {
   extractedReportData = {};
   extractedPsData = {};
   checkPaymentOrders = [];
+  window._deliveryAnalysed = false;
+  window._openingChecklist = '';
+  window._fridgeChecklist = '';
+  window._drinksStock = '';
+  var fcYes=document.getElementById('fridge-checklist-yes'); if(fcYes) fcYes.className='';
+  var fcNo=document.getElementById('fridge-checklist-no'); if(fcNo) fcNo.className='';
+  var dsYes=document.getElementById('drinks-stock-yes'); if(dsYes) dsYes.className='';
+  var dsNo=document.getElementById('drinks-stock-no'); if(dsNo) dsNo.className='';
+  var dsEl=document.getElementById('drinks-stock-section'); if(dsEl) dsEl.style.display='none';
+  var ocSection = document.getElementById('opening-checklist-section'); if (ocSection) ocSection.style.display = 'none';
+  var ocNotes = document.getElementById('f-opening-checklist-notes'); if (ocNotes) ocNotes.value = '';
+  var ocYes = document.getElementById('opening-checklist-yes'); if (ocYes) ocYes.className = '';
+  var ocNo = document.getElementById('opening-checklist-no'); if (ocNo) ocNo.className = '';
+  var ocInc = document.getElementById('opening-checklist-incomplete'); if (ocInc) ocInc.style.display = 'none';
+  window._psNoTransactions = false;
+  window._psMissingPayment = false;
+  var noTxWrap = document.getElementById('ps-no-transactions-wrap'); if (noTxWrap) noTxWrap.style.display = 'none';
+  var missingReason = document.getElementById('f-ps-missing-reason'); if (missingReason) missingReason.value = '';
+  var drinksSection = document.getElementById('drinks-order-section');
+  if (drinksSection) drinksSection.style.display = 'none';
   // Hide New Report button, keep View Reports visible, return to login screen
   document.getElementById('nav-new-report').style.display = 'none';
   document.getElementById('login-overlay').classList.remove('hidden');
@@ -3201,8 +3797,8 @@ function openReport(idx) {
   html += section('Takings', [
     ['Cash Takings', r.cashTakings || null],
     ['Cash Float', r.cashFloat || null],
-    ['Takings kept', r.takingsLocation ? (r.takingsLocation === 'given' ? `Given to: ${r.givenTo || '?'}` : r.takingsLocation) : null],
-    ['Change needed', r.changeNeeded === 'yes' ? (r.changeDetail || 'Yes') : r.changeNeeded || null],
+    ['Takings kept', r.takingsLocation ? (r.takingsLocation === 'given' ? `${r.givenTo || '?'}` : r.takingsLocation) : null],
+    ['Change needed', r.changeNeeded === 'yes' ? (r.changeDetail || r.changeNeeded || 'Yes') : r.changeNeeded || null],
     ['TA Sales', r.taSales ? '£' + r.taSales : null],
     ['TA Orders', r.taOrders],
     ['Cook Time', r.cookTime || (r.reportData?.cook_time ? r.reportData.cook_time : null)],
@@ -3248,6 +3844,17 @@ function openReport(idx) {
   }
   if (r.deposits?.length) {
     html += `<div class="modal-section"><h4>Table Deposits</h4>${r.deposits.map(d => `<div class="modal-row"><span class="key">${d.booking}</span><span class="val">${d.type}</span></div>`).join('')}</div>`;
+  }
+  if (r.openingChecklistComplete) {
+    var ocColor = r.openingChecklistComplete === 'yes' ? 'var(--green-acc)' : 'var(--red)';
+    var ocLabel = r.openingChecklistComplete === 'yes' ? '\u2713 Complete' : '\u26a0 Incomplete';
+    html += '<div class="modal-section"><h4>Opening Checklist</h4>';
+    html += '<div class="modal-row"><span class="key">Status</span><span class="val" style="color:'+ocColor+';font-weight:700;">'+ocLabel+'</span></div>';
+    if (r.openingChecklistNotes) html += '<div class="modal-row"><span class="key">Tasks not done</span><span class="val">'+r.openingChecklistNotes+'</span></div>';
+    html += '</div>';
+  }
+  if (r.drinksOrder?.length) {
+    html += '<div class="modal-section"><h4>Drinks Order</h4>' + r.drinksOrder.map(function(d){ return '<div class="modal-row"><span class="key">' + d.item + '</span><span class="val">' + d.qty + '</span></div>'; }).join('') + '</div>';
   }
   if (r.issues?.filter(Boolean).length) {
     html += `<div class="modal-section"><h4>Issues & Feedback</h4>${r.issues.filter(Boolean).map((iss, i) => `<div class="modal-row"><span class="key">${i+1}.</span><span class="val">${iss}</span></div>`).join('')}</div>`;
