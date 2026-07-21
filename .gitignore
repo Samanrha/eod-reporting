@@ -1,0 +1,6 @@
+# Local Netlify CLI state — must NEVER be committed.
+# (A committed .netlify/ folder ships stale pre-built functions.)
+.netlify
+node_modules
+.DS_Store
+ 
