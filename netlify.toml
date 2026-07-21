@@ -1,0 +1,10 @@
+# Root Netlify config for eod-reporting
+# Ensures functions are BUILT FROM SOURCE (netlify/functions) on every deploy,
+# instead of shipping any pre-built artifact.
+
+[build]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
