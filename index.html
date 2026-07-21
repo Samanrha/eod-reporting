@@ -758,6 +758,14 @@ function goToNewReport() {
   var formView = document.getElementById('view-form');
   if (formView) formView.classList.add('active');
 }
+// Expose login/nav handlers on window so the inline onclick attributes in the
+// login overlay always resolve them, regardless of script scoping. Prevents
+// "selectLocation is not defined" ReferenceErrors on the location buttons.
+window.selectLocation = selectLocation;
+window.clearLocationSelection = clearLocationSelection;
+window.checkLocationPin = checkLocationPin;
+window.requestDashboard = requestDashboard;
+window.goToNewReport = goToNewReport;
 function filterReports(site) {
   document.querySelectorAll('.filter-btn').forEach(function(b){ b.classList.remove('active'); });
   if (event && event.target) event.target.classList.add('active');
@@ -1614,7 +1622,7 @@ async function analyseDeliveryImage() {
 
   // Send ONE image per request in parallel — avoids body size limit
   var fetchPromises = allImgs.map(function(img, idx) {
-    return fetch('/.netlify/functions/ai-proxy', {
+    return fetch('/.netlify/ai/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1815,7 +1823,7 @@ async function analyseLateImage() {
   status.textContent = 'Analysing ' + images.length + ' screenshot' + (images.length > 1 ? 's' : '') + ' in parallel...';
 
   var fetchPromises = images.map(function(img, idx) {
-    return fetch('/.netlify/functions/ai-proxy', {
+    return fetch('/.netlify/ai/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1992,7 +2000,7 @@ async function analyseReportImage() {
   const selectedDate = document.getElementById('f-date').value;
 
   try {
-    const response = await fetch('/.netlify/functions/ai-proxy', {
+    const response = await fetch('/.netlify/ai/v1/messages', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -2203,7 +2211,7 @@ async function analysePsImage() {
   const psOrderlordAmt = parseFloat(extractedReportData.paymentsense_online_amount || 0);
 
   try {
-    const response = await fetch('/.netlify/functions/ai-proxy', {
+    const response = await fetch('/.netlify/ai/v1/messages', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
