@@ -580,7 +580,7 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
 
       <!-- CENTRAL KITCHEN STOCK -->
       <div id="ck-stock-section" style="display:none;">
-        <div class="section-title">Central Kitchen Stock</div>
+        <div class="section-title" id="ck-stock-title">Central Kitchen Stock</div>
         <div id="ck-stock-list"></div>
         <div id="dext-wrap" style="margin-top:14px;display:none;" data-required="true">
           <div class="toggle-row">
@@ -786,13 +786,37 @@ window.SITE_ADDRESSES = {
 // Restaurant origin addresses for distance calculation
 var SITE_ORIGINS = {
   bridport:   '68 South Street, Bridport, DT6 3NN',
-  dorchester: '6 Cornhill, Dorchester, DT1 1BA',
-  rivaaz:     '1 High Street, Lymington, SO41 9AD'
+  dorchester: '5 Trinity Street, Dorchester, DT1 1TU',
+  rivaaz:     '7 St Thomas Street, Lymington, SO41 9NA'
 };
+
+// Any single delivery further than this (one way) is treated as a probable
+// address mix-up and flagged for checking instead of silently paid at the top rate.
+var MAX_SANE_MILES = 12;
+
+// Short fingerprint of an image so each screenshot is only analysed once
+function imgKey(b64) {
+  b64 = b64 || '';
+  var h = 2166136261;
+  for (var i = 0; i < b64.length; i += 7) { h ^= b64.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return b64.length + ':' + (h >>> 0).toString(16);
+}
+
+// Full address to send to Google: add the postcode and ", UK" so it can't
+// match a street with the same name somewhere else.
+function deliveryDestination(d) {
+  var addr = String(d.address || '').trim();
+  if (!addr || addr === '—') return '';
+  var pc = String(d.postcode || '').trim();
+  var squash = function(x) { return x.replace(/\s+/g, '').toLowerCase(); };
+  if (pc && squash(addr).indexOf(squash(pc)) === -1) addr += ', ' + pc;
+  if (!/\b(uk|united kingdom|england)\b/i.test(addr)) addr += ', UK';
+  return addr;
+}
 
 // Calculate real driving distances from restaurant to each delivery address
 async function getRealDistances(addresses) {
-  if (!addresses || !addresses.length) return {};
+  if (!addresses || !addresses.length) return { map: {}, error: '' };
   var origin = SITE_ORIGINS[currentSite] || SITE_ORIGINS.bridport;
   try {
     var resp = await fetch('/.netlify/functions/maps-distance', {
@@ -801,15 +825,15 @@ async function getRealDistances(addresses) {
       body: JSON.stringify({ origin: origin, destinations: addresses })
     });
     var data = await resp.json();
-    if (data.error) { console.warn('Maps distance error:', data.error); return {}; }
     var map = {};
     (data.results || []).forEach(function(r) {
-      if (r.status === 'OK') map[r.destination] = r.miles;
+      if (r.status === 'OK' && r.miles != null) map[r.destination] = r.miles;
     });
-    return map;
+    if (data.error) console.warn('Maps distance error:', data.error);
+    return { map: map, error: data.error || '' };
   } catch (e) {
     console.warn('Maps distance fetch failed:', e);
-    return {};
+    return { map: {}, error: e.message || 'Maps lookup failed' };
   }
 }
 
@@ -829,27 +853,44 @@ function calcFuelRate(miles) {
 }
 
 async function populateDriversFromScreenshot(deliveriesFlat) {
-  // Get all unique addresses from deliveries and fetch real distances
+  // Get all unique destinations from deliveries and fetch real distances
   var uniqueAddresses = [];
   (deliveriesFlat || []).forEach(function(d) {
-    if (d.address && d.address !== '—' && !uniqueAddresses.includes(d.address)) {
-      uniqueAddresses.push(d.address);
-    }
+    d._dest = deliveryDestination(d);
+    if (d._dest && !uniqueAddresses.includes(d._dest)) uniqueAddresses.push(d._dest);
   });
 
-  // Fetch real distances from Google Maps
-  var distanceMap = {};
+  // Fetch real distances from Google Maps (one way, restaurant -> customer)
+  var mapsResult = { map: {}, error: '' };
   if (uniqueAddresses.length > 0) {
     var statusEl = document.getElementById('delivery-analysis-status');
     if (statusEl) statusEl.textContent = 'Calculating real distances via Google Maps...';
-    distanceMap = await getRealDistances(uniqueAddresses);
-    // Replace guessed miles with real ones
-    (deliveriesFlat || []).forEach(function(d) {
-      if (d.address && distanceMap[d.address] !== undefined) {
-        d.miles = distanceMap[d.address];
-      }
-    });
+    mapsResult = await getRealDistances(uniqueAddresses);
   }
+  var distanceMap = mapsResult.map || {};
+  var distanceSummary = { maps: 0, estimated: 0, flagged: 0, error: mapsResult.error || '' };
+  (deliveriesFlat || []).forEach(function(d) {
+    var aiMiles = parseFloat(d.miles);
+    var gMiles = d._dest ? distanceMap[d._dest] : undefined;
+    d.flag = '';
+    if (gMiles !== undefined && gMiles !== null) {
+      if (gMiles > MAX_SANE_MILES) {
+        // Google probably matched the wrong place — fall back to the estimate if it looks sensible
+        d.flag = 'Google says ' + gMiles + 'mi — check address';
+        if (!isNaN(aiMiles) && aiMiles > 0 && aiMiles <= MAX_SANE_MILES) { d.miles = aiMiles; d.distSource = 'estimate'; }
+        else { d.miles = gMiles; d.distSource = 'maps'; }
+      } else {
+        d.miles = gMiles; d.distSource = 'maps';
+      }
+    } else {
+      d.miles = isNaN(aiMiles) ? 0 : aiMiles;
+      d.distSource = 'estimate';
+      d.flag = 'not found on Google Maps — estimate used';
+    }
+    if (d.distSource === 'maps') distanceSummary.maps++; else distanceSummary.estimated++;
+    if (d.flag) distanceSummary.flagged++;
+  });
+  window._distanceSummary = distanceSummary;
   // Accept flat delivery array [{driver, address, miles}] and group by driver
   var driversMap = {};
   (deliveriesFlat || []).forEach(function(d) {
@@ -858,7 +899,7 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     if (!driversMap[key]) driversMap[key] = { name: d.driver, deliveries: [], cashOrders: [] };
     var isCash = (d.payment || '').toLowerCase().trim() === 'cash';
     var cashAmt = parseFloat(d.cash_amount) || 0;
-    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt });
+    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt, flag: d.flag || '', source: d.distSource || '' });
     if (isCash && cashAmt > 0) {
       driversMap[key].cashOrders.push({ address: d.address || '—', amount: cashAmt });
     }
@@ -866,8 +907,35 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
   var driversData = Object.values(driversMap);
 
   var list = document.getElementById('driver-list');
-  // Clear existing AI-populated rows but keep manually added ones
-  list.querySelectorAll('.ai-driver-row').forEach(function(r) { r.remove(); });
+  // Remember what has already been entered for each driver (wage, ticks, edited fuel)
+  // so adding another screenshot later in the night doesn't wipe it.
+  var prevState = {};
+  list.querySelectorAll('.ai-driver-row').forEach(function(r) {
+    var k = (r.dataset.driverName || '').toLowerCase().trim();
+    if (!k) return;
+    var f = r.querySelector('.drv-fuel'), w = r.querySelector('.drv-wage');
+    var fp = r.querySelector('[data-paid]'), wp = r.querySelector('[data-wage-paid]'), cb = r.querySelector('.cash-received-btn');
+    prevState[k] = {
+      wage: w ? w.value : '',
+      fuel: f ? f.value : '',
+      fuelEdited: !!(f && f.dataset.userEdited === 'true'),
+      calcFuel: r.dataset.calcFuel || '',
+      fuelPaid: !!(fp && fp.dataset.paid === 'true'),
+      wagePaid: !!(wp && wp.dataset.wagePaid === 'true'),
+      cashReceived: !!(cb && cb.dataset.cashReceived === 'true'),
+      cashTotal: r.dataset.cashTotal || ''
+    };
+  });
+  // Clear existing AI-populated rows but keep manually added ones.
+  // Safety net: a driver who is no longer on the screenshots (e.g. pages were cleared)
+  // but already has a wage or a tick entered is left alone rather than deleted.
+  list.querySelectorAll('.ai-driver-row').forEach(function(r) {
+    var k = (r.dataset.driverName || '').toLowerCase().trim();
+    var st = prevState[k] || {};
+    var hasWage = parseFloat(String(st.wage || '').replace(/[^0-9.]/g, '')) > 0;
+    if (k && !driversMap[k] && (hasWage || st.fuelPaid || st.wagePaid || st.cashReceived)) return;
+    r.remove();
+  });
 
   driversData.forEach(function(driver) {
     if (!driver.name || driver.name === 'driver name exactly as shown') return;
@@ -875,17 +943,22 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     // Calculate fuel total for this driver
     var totalFuel = 0;
     var deliveryDetails = [];
+    var driverFlags = 0;
     (driver.deliveries || []).forEach(function(dlv) {
       var miles = parseFloat(dlv.miles) || 0;
       var rate = calcFuelRate(miles);
       totalFuel += rate;
-      var payLabel = dlv.payment ? ' [' + dlv.payment + ']' : ''; deliveryDetails.push(dlv.address + ' (' + miles + 'mi = £' + rate + ')' + payLabel);
+      var payLabel = dlv.payment ? ' [' + dlv.payment + ']' : '';
+      var srcLabel = dlv.source === 'estimate' ? ' est.' : '';
+      var flagLabel = dlv.flag ? ' ⚠ ' + dlv.flag : '';
+      if (dlv.flag) driverFlags++;
+      deliveryDetails.push(dlv.address + ' (' + miles.toFixed(1) + 'mi' + srcLabel + ' = £' + rate + ')' + payLabel + flagLabel);
     });
 
     // Build driver row
     var row = document.createElement('div');
     row.className = 'driver-row ai-driver-row';
-    row.style.cssText = 'background:var(--green-mid);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;';
+    row.style.cssText = 'display:block;background:var(--green-mid);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;';
 
     // Row 1: Driver name + fuel total
     var hdr = document.createElement('div');
@@ -897,7 +970,8 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
 
     var fuelEl = document.createElement('div');
     fuelEl.style.cssText = 'font-size:12px;color:var(--green-acc);font-weight:700;';
-    fuelEl.textContent = '£' + totalFuel.toFixed(2) + ' fuel';
+    fuelEl.textContent = '£' + totalFuel.toFixed(2) + ' fuel · ' + (driver.deliveries || []).length + ' drops' + (driverFlags ? ' · ⚠ ' + driverFlags + ' to check' : '');
+    if (driverFlags) fuelEl.style.color = 'var(--red)';
 
     hdr.appendChild(nameEl);
     hdr.appendChild(fuelEl);
@@ -956,7 +1030,13 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     if (deliveryDetails.length > 0) {
       var breakdown = document.createElement('div');
       breakdown.style.cssText = 'font-size:11px;color:var(--muted);line-height:1.8;border-top:1px solid var(--border);padding-top:6px;margin-bottom:8px;';
-      breakdown.textContent = deliveryDetails.join(' • ');
+      breakdown.innerHTML = '';
+      deliveryDetails.forEach(function(line) {
+        var li = document.createElement('div');
+        li.textContent = '• ' + line;
+        if (line.indexOf('⚠') !== -1) { li.style.color = 'var(--red)'; li.style.fontWeight = '700'; }
+        breakdown.appendChild(li);
+      });
       row.appendChild(breakdown);
     }
 
@@ -970,6 +1050,7 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     fuelInp.placeholder = 'Fuel £';
     fuelInp.style.cssText = 'background:var(--green);border:1px solid var(--border);border-radius:5px;padding:10px;color:var(--gold);font-weight:700;font-family:var(--sans);font-size:13px;outline:none;';
     fuelInp.setAttribute('oninput', 'formatCurrency(this)');
+    fuelInp.addEventListener('input', function() { this.dataset.userEdited = 'true'; });
     fuelInp.title = 'Fuel money (auto-calculated from deliveries)';
 
     var wageInp = document.createElement('input');
@@ -1004,9 +1085,9 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
       this.style.borderColor = isPaid ? 'var(--border)' : 'var(--gold)';
     };
 
-    // Delivery breakdown — hidden by default, toggle on driver name click
+    // Delivery breakdown — hidden by default (shown if anything needs checking), toggle on driver name click
     if (breakdown) {
-      breakdown.style.display = 'none';
+      breakdown.style.display = driverFlags ? 'block' : 'none';
       nameEl.style.cursor = 'pointer';
       nameEl.title = 'Click to see delivery breakdown';
       nameEl.onclick = function() {
@@ -1018,12 +1099,36 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     row.dataset.driverName = driver.name;
     fuelInp.dataset.driverName = driver.name;
 
-    fields.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end;';
+    fields.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;align-items:end;';
     fields.appendChild(fuelInp);
     fields.appendChild(wageInp);
     fields.appendChild(paidBtn);
     fields.appendChild(wageBtn);
     row.appendChild(fields);
+
+    // Put back anything already entered for this driver before the new screenshot
+    var calcFuelStr = totalFuel.toFixed(2);
+    var cashTotalStr = (driver.cashOrders || []).reduce(function(t, o){ return t + o.amount; }, 0).toFixed(2);
+    row.dataset.calcFuel = calcFuelStr;
+    row.dataset.cashTotal = cashTotalStr;
+    var prev = prevState[(driver.name || '').toLowerCase().trim()];
+    if (prev) {
+      if (prev.wage) wageInp.value = prev.wage;
+      if (prev.fuelEdited) { fuelInp.value = prev.fuel; fuelInp.dataset.userEdited = 'true'; }
+      var fuelUnchanged = prev.calcFuel === calcFuelStr || prev.fuelEdited;
+      if (prev.fuelPaid && fuelUnchanged) paidBtn.click();
+      if (prev.fuelPaid && !fuelUnchanged) {
+        var note = document.createElement('div');
+        note.style.cssText = 'font-size:11px;color:var(--red);margin-top:6px;font-weight:700;';
+        note.textContent = '⚠ Fuel was marked paid at £' + prev.calcFuel + ' — now £' + calcFuelStr + ' after the new screenshot. Pay the difference and tick again.';
+        row.appendChild(note);
+      }
+      if (prev.wagePaid) wageBtn.click();
+      if (prev.cashReceived && prev.cashTotal === cashTotalStr) {
+        var cbtn = row.querySelector('.cash-received-btn');
+        if (cbtn) cbtn.click();
+      }
+    }
 
     list.insertBefore(row, list.firstChild);
   });
@@ -1236,6 +1341,12 @@ function setDext(val) {
   window._dextValue = val;
 }
 
+// Sites that don't record central kitchen stock on the EOD
+var NO_CK_STOCK_SITES = ['dorchester'];
+// Sites that get a "0 — Out" button on each central kitchen stock item
+var ZERO_STOCK_SITES = ['bridport'];
+var CK_ZERO_VALUE = '0 — URGENT';
+
 var CK_ITEMS = {
   bridport:   ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala'],
   dorchester: ['Meat','Chicken','Tomato Puree','Tomato Gravy','Makhani','Korma','Masala'],
@@ -1254,9 +1365,6 @@ function buildCkStockSection(site) {
   var list = document.getElementById('ck-stock-list');
   var dextWrap = document.getElementById('dext-wrap');
 
-  // Hide CK stock section for Dorchester but still show dext on delivery days
-  if (site === 'dorchester') { section.style.display = 'none'; }
-  section.style.display = 'block';
   list.innerHTML = '';
   window._dextValue = '';
   document.getElementById('dext-yes').className = '';
@@ -1268,6 +1376,20 @@ function buildCkStockSection(site) {
   var selectedDay = selectedDate.getDay();
   var ckDays = CK_DAYS[site] || [];
   var isCkDay = ckDays.includes(selectedDay);
+
+  // Dorchester doesn't record central kitchen stock — only show the
+  // supplier-invoice check, and only on delivery days.
+  var noStockList = NO_CK_STOCK_SITES.indexOf(site) !== -1;
+  var titleEl = document.getElementById('ck-stock-title');
+  if (noStockList) {
+    section.style.display = isCkDay ? 'block' : 'none';
+    if (titleEl) titleEl.textContent = 'Supplier Invoice';
+    list.style.display = 'none';
+  } else {
+    section.style.display = 'block';
+    if (titleEl) titleEl.textContent = 'Central Kitchen Stock';
+    list.style.display = '';
+  }
 
   // Show Dext toggle only on delivery days
   // Show dext on CK delivery days only
@@ -1284,10 +1406,12 @@ function buildCkStockSection(site) {
   dextLbl.appendChild(req);
   }
 
-  var items = CK_ITEMS[site] || [];
+  var items = noStockList ? [] : (CK_ITEMS[site] || []);
+  var showZeroBtn = ZERO_STOCK_SITES.indexOf(site) !== -1;
   items.forEach(function(item) {
     var row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;margin-bottom:10px;';
+    row.className = 'ck-stock-row';
+    row.style.cssText = 'display:grid;grid-template-columns:1fr auto' + (showZeroBtn ? ' auto' : '') + ';gap:12px;align-items:center;margin-bottom:10px;padding:2px 6px;border-radius:6px;';
 
     var label = document.createElement('label');
     label.style.cssText = 'font-size:13px;color:var(--text);';
@@ -1300,12 +1424,60 @@ function buildCkStockSection(site) {
     var ckBlank = document.createElement('option');
     ckBlank.value = ''; ckBlank.textContent = '— qty —'; ckBlank.disabled = true; ckBlank.selected = true;
     ckSel.appendChild(ckBlank);
+    if (showZeroBtn) {
+      var zOpt = document.createElement('option');
+      zOpt.value = CK_ZERO_VALUE; zOpt.textContent = '0 — OUT (urgent)';
+      ckSel.appendChild(zOpt);
+    }
     ckSizes.forEach(function(sz) { var o = document.createElement('option'); o.value = sz; o.textContent = sz; ckSel.appendChild(o); });
 
     row.appendChild(label);
     row.appendChild(ckSel);
+
+    if (showZeroBtn) {
+      var zeroBtn = document.createElement('button');
+      zeroBtn.type = 'button';
+      zeroBtn.className = 'ck-zero-btn';
+      zeroBtn.textContent = '0 — Out';
+      zeroBtn.title = 'None left — flags as URGENT on the report';
+      zeroBtn.style.cssText = 'padding:10px 12px;border-radius:5px;border:1.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-family:var(--serif);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;touch-action:manipulation;white-space:nowrap;';
+      zeroBtn.onclick = function() {
+        ckSel.value = (ckSel.value === CK_ZERO_VALUE) ? '' : CK_ZERO_VALUE;
+        if (!ckSel.value) ckSel.selectedIndex = 0;
+        paintCkRow(row, ckSel, zeroBtn);
+      };
+      ckSel.addEventListener('change', function() { paintCkRow(row, ckSel, zeroBtn); });
+      row.appendChild(zeroBtn);
+    }
     list.appendChild(row);
   });
+}
+
+// Highlight a central-stock row red when it is marked as out of stock
+function paintCkRow(row, sel, btn) {
+  var out = sel.value === CK_ZERO_VALUE;
+  row.style.background = out ? 'rgba(220,80,80,.15)' : '';
+  row.style.outline = out ? '1.5px solid var(--red)' : '';
+  sel.style.color = out ? 'var(--red)' : 'var(--text)';
+  sel.style.fontWeight = out ? '700' : '';
+  if (btn) {
+    btn.style.background = out ? 'var(--red)' : 'transparent';
+    btn.style.color = out ? '#fff' : 'var(--red)';
+    btn.textContent = out ? '✓ Out' : '0 — Out';
+  }
+}
+
+// Items marked as out of stock (used to flag them as urgent issues on the report)
+function getUrgentStockItems() {
+  var out = [];
+  document.querySelectorAll('#ck-stock-list select').forEach(function(sel) {
+    if (sel.value === CK_ZERO_VALUE) out.push(sel.dataset.item);
+  });
+  return out;
+}
+function getUrgentStockIssue() {
+  var items = getUrgentStockItems();
+  return items.length ? ('URGENT — central kitchen stock OUT: ' + items.join(', ')) : '';
 }
 
 function getCkStockData() {
@@ -1500,9 +1672,25 @@ function handleDeliveryImages(input) {
   files.forEach(function(file) {
     var reader = new FileReader();
     reader.onload = function(e) {
-      window._deliveryImages.push({ base64: e.target.result.split(',')[1], mediaType: file.type || 'image/jpeg' });
+      var b64 = e.target.result.split(',')[1];
+      // ignore the exact same screenshot being added twice
+      var k = imgKey(b64);
+      var dup = window._deliveryImages.some(function(im) { return imgKey(im.base64) === k; });
+      if (!dup) window._deliveryImages.push({ base64: b64, mediaType: file.type || 'image/jpeg' });
       loaded++;
-      if (loaded === total) renderDeliveryThumbs();
+      if (loaded === total) {
+        renderDeliveryThumbs();
+        // allow the same file to be picked again later
+        var inp = document.getElementById('f-delivery-img');
+        try { if (inp) inp.value = ''; } catch(err) {}
+        // Already analysed tonight? Read the new page straight away and merge it in —
+        // wages, ticks, cash received and late-order reasons already entered are kept.
+        if (window._deliveryAnalysed || window._deliveryAnalysing) {
+          var status = document.getElementById('delivery-analysis-status');
+          if (status) { status.textContent = 'New screenshot added — adding its deliveries...'; status.style.color = 'var(--muted)'; }
+          analyseDeliveryImage();
+        }
+      }
     };
     reader.readAsDataURL(file);
   });
@@ -1534,8 +1722,7 @@ function renderDeliveryThumbs() {
     if (placeholder) placeholder.style.display = 'none';
     if (count) count.textContent = imgs.length + ' screenshot' + (imgs.length > 1 ? 's' : '') + ' — tap box to add more';
     if (wrap) { wrap.style.display = 'flex'; wrap.style.flexDirection = 'column'; }
-    if (analyseBtn) analyseBtn.onclick = analyseDeliveryImage;
-    if (clearBtn) clearBtn.onclick = clearDeliveryImages;
+    // (buttons are wired once in wireDelivery — assigning onclick here as well made analysis run twice)
   } else {
     if (placeholder) placeholder.style.display = '';
     if (count) count.textContent = '';
@@ -1582,6 +1769,7 @@ function updateDeliveryThumbs() {
 }
 function clearDeliveryImages() {
   window._deliveryImages = [];
+  window._deliveryCache = {}; // fresh start: re-uploaded pages get read again
   var status = document.getElementById('delivery-analysis-status');
   if (status) status.textContent = '';
   var inp = document.getElementById('f-delivery-img');
@@ -1597,29 +1785,45 @@ function handleDeliveryDrop(event) {
 }
 
 async function analyseDeliveryImage() {
+  // Only one analysis at a time. If more screenshots arrive mid-run, go again when it finishes.
+  if (window._deliveryAnalysing) { window._deliveryRerun = true; return; }
   var imgs = window._deliveryImages || [];
   var imgBase64 = imgs.length ? imgs[0].base64 : (window._deliveryImageBase64 || '');
   var mediaType = imgs.length ? (imgs[0].mediaType || 'image/jpeg') : (window._deliveryMediaType || 'image/jpeg');
   var btn = document.getElementById('delivery-analyse-btn');
   var status = document.getElementById('delivery-analysis-status');
-  if (!imgs.length && !imgBase64) { if (status) { status.textContent = '\u26a0 No screenshots uploaded'; status.style.color='var(--red)'; } return; }
+  if (!imgs.length && !imgBase64) { if (status) { status.textContent = '⚠ No screenshots uploaded'; status.style.color='var(--red)'; } return; }
 
-  if (btn) { btn.textContent = '\u23f3 Analysing...'; btn.disabled = true; }
+  window._deliveryAnalysing = true;
+  window._deliveryRerun = false;
+  window._deliveryCache = window._deliveryCache || {};
+  if (btn) { btn.textContent = '⏳ Analysing...'; btn.disabled = true; }
 
   var allImgs = imgs.length ? imgs : [{ base64: imgBase64, mediaType: mediaType }];
   var siteAddr = (window.SITE_ADDRESSES && currentSite) ? (window.SITE_ADDRESSES[currentSite] || '') : '';
-  var prompt = 'This is one page of an Orderlord delivery list. Extract EVERY delivery visible on THIS page only. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"driver": "Jason Hyde", "address": "14 High Street, Bridport", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each row: driver = courier name exactly as shown, address = full delivery address, miles = estimated distance from restaurant at ' + siteAddr + ', payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash payment). No markdown, no explanation, just JSON.';
+  var prompt = 'This is one page of an Orderlord delivery list. Extract EVERY delivery visible on THIS page only — read every row carefully, top to bottom. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"order_no": "1042", "driver": "Jason Hyde", "address": "14 High Street, Bridport", "postcode": "DT6 3AB", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each row: order_no = the order number / ID exactly as shown ("" if there is none), driver = courier name exactly as shown, address = the FULL delivery address exactly as written including house number, street AND town or village, postcode = the UK postcode if one is visible ("" if not), miles = your best guess of the driving distance from the restaurant at ' + siteAddr + ' (only used as a backup), payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash payment). No markdown, no explanation, just JSON.';
 
-  if (status) { status.textContent = 'Analysing ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + ' in parallel...'; status.style.color = 'var(--muted)'; }
+  // Screenshots that were already read are taken from the cache, so adding page 3
+  // later in the night only sends page 3 to the AI — and pages 1-2 read the same as before.
+  var toRead = allImgs.filter(function(img) { return !window._deliveryCache[imgKey(img.base64)]; }).length;
+  if (status) {
+    status.textContent = toRead
+      ? 'Reading ' + toRead + ' new screenshot' + (toRead > 1 ? 's' : '') + (allImgs.length > toRead ? ' (' + (allImgs.length - toRead) + ' already read)' : '') + '...'
+      : 'Re-checking ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + '...';
+    status.style.color = 'var(--muted)';
+  }
 
+  var failedPages = 0;
   // Send ONE image per request in parallel — avoids body size limit
   var fetchPromises = allImgs.map(function(img, idx) {
+    var key = imgKey(img.base64);
+    if (window._deliveryCache[key]) return Promise.resolve(window._deliveryCache[key]);
     return fetch('/.netlify/functions/ai-proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: 4000,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.base64 } },
           { type: 'text', text: prompt }
@@ -1627,11 +1831,11 @@ async function analyseDeliveryImage() {
       })
     })
     .then(function(r) {
-      if (!r.ok) { console.warn('Delivery img ' + idx + ' HTTP ' + r.status); return []; }
+      if (!r.ok) { console.warn('Delivery img ' + idx + ' HTTP ' + r.status); return null; }
       return r.json();
     })
     .then(function(data) {
-      if (!data || data.error) { console.warn('Delivery img ' + idx + ' error:', data); return []; }
+      if (!data || data.error) { console.warn('Delivery img ' + idx + ' error:', data); failedPages++; return []; }
       var txt = (data.content && data.content[0]) ? data.content[0].text || '' : '';
       var jsonObjs = [], depth = 0, start = -1;
       for (var ci = 0; ci < txt.length; ci++) {
@@ -1639,44 +1843,72 @@ async function analyseDeliveryImage() {
         else if (txt[ci] === '}') { depth--; if (depth === 0 && start >= 0) { jsonObjs.push(txt.substring(start, ci+1)); start = -1; } }
       }
       for (var ji = jsonObjs.length - 1; ji >= 0; ji--) {
-        try { var p = JSON.parse(jsonObjs[ji]); if (p.deliveries) return p.deliveries; } catch(e) {}
+        try {
+          var p = JSON.parse(jsonObjs[ji]);
+          if (p.deliveries) { window._deliveryCache[key] = p.deliveries; return p.deliveries; }
+        } catch(e) {}
       }
+      failedPages++;
       return [];
     })
-    .catch(function(e) { console.warn('Delivery img ' + idx + ' fetch err:', e); return []; });
+    .catch(function(e) { console.warn('Delivery img ' + idx + ' fetch err:', e); failedPages++; return []; });
   });
 
   try {
     var results = await Promise.all(fetchPromises);
     var allDeliveries = [];
-    results.forEach(function(r) { allDeliveries = allDeliveries.concat(r || []); });
+    results.forEach(function(r) {
+      // copy so the cached page data is never changed
+      (r || []).forEach(function(d) { allDeliveries.push(Object.assign({}, d)); });
+    });
 
-    // Deduplicate by customer+driver combo
+    // Remove deliveries that appear on two overlapping screenshots.
+    // Order number first; if there isn't one, driver + address (ignoring spaces/commas/case).
     var seen = {};
+    var normAddr = function(a) { return String(a || '').toLowerCase().replace(/[^a-z0-9]/g, ''); };
     var deliveries = allDeliveries.filter(function(d) {
-      var key = ((d.driver||'') + '|' + (d.address||'')).toLowerCase().trim();
-      if (!key || key === '|') return false;
+      var ord = String(d.order_no || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      var key = ord ? 'o:' + ord : 'a:' + String(d.driver || '').toLowerCase().trim() + '|' + normAddr(d.address);
+      if (key === 'a:|') return false;
       if (seen[key]) return false;
       seen[key] = true;
       return true;
     });
 
     if (deliveries.length > 0) {
-      populateDriversFromScreenshot(deliveries);
-      if (status) { status.textContent = '\u2713 Found ' + deliveries.length + ' deliveries across ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + ' — drivers and fuel calculated below.'; status.style.color = 'var(--green-acc)'; }
-      window._lateImages = allImgs.slice(0, 2); // use first 2 pages for late orders
+      await populateDriversFromScreenshot(deliveries);
+      var ds = window._distanceSummary || {};
+      var msg = '✓ Found ' + deliveries.length + ' deliveries across ' + allImgs.length + ' screenshot' + (allImgs.length > 1 ? 's' : '') + ' — drivers and fuel calculated below. Anything already typed in has been kept.';
+      var warn = [];
+      if (failedPages) warn.push(failedPages + ' screenshot' + (failedPages > 1 ? 's' : '') + ' could not be read — tap Re-analyse');
+      if (ds.error) warn.push('Google Maps did not answer (' + ds.error + ') — fuel is using estimated miles, please check');
+      else if (ds.flagged) warn.push(ds.flagged + (ds.flagged > 1 ? ' addresses need' : ' address needs') + ' checking (shown in red under the driver)');
+      if (status) {
+        status.textContent = msg + (warn.length ? '  ⚠ ' + warn.join('. ') + '.' : '');
+        status.style.color = warn.length ? 'var(--red)' : 'var(--green-acc)';
+      }
+      // Late orders: check EVERY delivery page (plus any late screenshots added separately),
+      // not just the first two — the later driver's orders are on the later pages.
+      var lateSet = [], lateKeys = {};
+      allImgs.concat(window._lateImages || []).forEach(function(im) {
+        var k = imgKey(im.base64);
+        if (!lateKeys[k]) { lateKeys[k] = true; lateSet.push(im); }
+      });
+      window._lateImages = lateSet;
       var lateBtnWrap = document.getElementById('late-analyse-btn-wrap');
       if (lateBtnWrap) lateBtnWrap.style.display = 'block';
       setTimeout(function() { analyseLateImage(); }, 500);
     } else {
-      if (status) { status.textContent = '\u26a0 Could not read deliveries — add drivers manually below'; status.style.color = 'var(--red)'; }
+      if (status) { status.textContent = '⚠ Could not read deliveries — tap Re-analyse, or add drivers manually below'; status.style.color = 'var(--red)'; }
     }
   } catch(err) {
-    if (status) { status.textContent = '\u26a0 Error: ' + err.message; status.style.color = 'var(--red)'; }
+    if (status) { status.textContent = '⚠ Error: ' + err.message; status.style.color = 'var(--red)'; }
   }
 
-  if (btn) { btn.textContent = '\u2713 Analysed \u2014 Re-analyse'; btn.disabled = false; }
+  if (btn) { btn.textContent = '✓ Analysed — Re-analyse'; btn.disabled = false; }
   window._deliveryAnalysed = true;
+  window._deliveryAnalysing = false;
+  if (window._deliveryRerun) { window._deliveryRerun = false; analyseDeliveryImage(); }
 }
 
 function handleReportDrop(e) {
@@ -1801,20 +2033,32 @@ async function analyseLateImage() {
   var status = document.getElementById('late-analysis-status');
   var images = window._lateImages || [];
 
-  if (!images.length) { status.textContent = '\u26a0 No images uploaded.'; return; }
+  if (!images.length) { status.textContent = '⚠ No images uploaded.'; return; }
+  // One run at a time; if more screenshots arrive mid-run, go again afterwards
+  if (window._lateAnalysing) { window._lateRerun = true; return; }
+  window._lateAnalysing = true;
+  window._lateRerun = false;
+  window._lateCache = window._lateCache || {};
 
-  btn.textContent = '\u23f3 Analysing...';
+  btn.textContent = '⏳ Analysing...';
   btn.disabled = true;
 
   var allOrders = [];
   var prompt = 'Look at this Orderlord orders table. Find the Arrived column — it contains timestamps with a number in brackets like (+10) or (+35). This number is the minutes late. I only want orders where this bracket number is STRICTLY GREATER THAN 25 — meaning 26 or more. Do NOT include orders where the number is 25 or less. Do NOT include orders with no bracket number. Output a JSON object and absolutely nothing else. Format: {"late_orders": [{"customer_name": "Zoe Harvey", "minutes_late": 35}]}. If no orders qualify with more than 25 minutes: {"late_orders": []}';
 
-  // Clear previous results before new analysis
+  // Existing late-order rows are NOT cleared any more — reasons and Updated/Happy
+  // answers already typed in stay put. Only orders not already listed get added.
   var listEl = document.getElementById('late-list');
-  listEl.querySelectorAll('.ai-late-row, .ai-late-reason').forEach(function(el) { el.remove(); });
-  status.textContent = 'Analysing ' + images.length + ' screenshot' + (images.length > 1 ? 's' : '') + ' in parallel...';
+  var lateKey = function(name, mins) { return String(name || '').toLowerCase().trim() + '_' + String(mins || '').replace(/[^0-9]/g, ''); };
+  var existingKeys = {};
+  listEl.querySelectorAll('.ai-late-row').forEach(function(r) { existingKeys[lateKey(r.dataset.orderNum, r.dataset.mins)] = true; });
+
+  var toRead = images.filter(function(img) { return !window._lateCache[imgKey(img.base64)]; }).length;
+  status.textContent = toRead ? 'Checking ' + toRead + ' new screenshot' + (toRead > 1 ? 's' : '') + ' for late orders...' : 'Re-checking late orders...';
 
   var fetchPromises = images.map(function(img, idx) {
+    var cacheKey = imgKey(img.base64);
+    if (window._lateCache[cacheKey]) return Promise.resolve(window._lateCache[cacheKey]);
     return fetch('/.netlify/functions/ai-proxy', {
       method: 'POST',
       headers: {
@@ -1831,7 +2075,7 @@ async function analyseLateImage() {
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      var txt = (data.content && data.content[0]) ? data.content[0].text || '' : '';
+      var txt = (data && data.content && data.content[0]) ? data.content[0].text || '' : '';
       // Find all JSON objects in response, use the last valid one
       var jsonObjects = [];
       var depth = 0, start = -1;
@@ -1843,7 +2087,7 @@ async function analyseLateImage() {
       for (var ji = jsonObjects.length - 1; ji >= 0; ji--) {
         try {
           var parsed = JSON.parse(jsonObjects[ji]);
-          if (parsed.late_orders) { return parsed.late_orders; }
+          if (parsed.late_orders) { window._lateCache[cacheKey] = parsed.late_orders; return parsed.late_orders; }
         } catch(e) {}
       }
       console.warn('Parse err img' + idx + ':', txt);
@@ -1854,42 +2098,41 @@ async function analyseLateImage() {
 
   var results = await Promise.all(fetchPromises);
   results.forEach(function(orders, i) {
-    console.log('Screenshot ' + (i+1) + ' returned ' + orders.length + ' orders:', JSON.stringify(orders));
-    allOrders = allOrders.concat(orders);
+    allOrders = allOrders.concat(orders || []);
   });
-  console.log('Total allOrders:', allOrders.length, JSON.stringify(allOrders));
 
-  // Deduplicate only exact same name+mins combos (in case same page uploaded twice)
+  // Deduplicate same name+mins combos (same order on two overlapping pages)
   var seen = {};
   var orders = allOrders.filter(function(o) {
-    var key = (o.customer_name || '').toLowerCase().trim() + '_' + (o.minutes_late || '');
+    var key = lateKey(o.customer_name, o.minutes_late);
     if (!key || key === '_') return false;
     if (seen[key]) return false;
     seen[key] = true;
     return true;
   });
+  var newOrders = orders.filter(function(o) { return !existingKeys[lateKey(o.customer_name, o.minutes_late)]; });
+  var existingCount = listEl.querySelectorAll('.ai-late-row').length;
 
   var list = document.getElementById('late-list');
 
-  if (orders.length === 0) {
-    status.textContent = '\u2713 No orders over 25 mins found across all screenshots.';
+  if (orders.length === 0 && existingCount === 0) {
+    status.textContent = '✓ No orders over 25 mins found across all screenshots.';
     status.style.color = 'var(--green-acc)';
   } else {
-    status.textContent = '\u2713 Found ' + orders.length + ' late order' + (orders.length > 1 ? 's' : '') + ' \u2014 please add reason and customer status below.';
+    var totalLate = existingCount + newOrders.length;
+    status.textContent = '✓ ' + totalLate + ' late order' + (totalLate > 1 ? 's' : '') +
+      (existingCount && newOrders.length ? ' (' + newOrders.length + ' new from the latest screenshot)' : existingCount && !newOrders.length ? ' (no new ones)' : '') +
+      ' — please add reason and customer status below.';
     status.style.color = 'var(--green-acc)';
 
-    // Clear previous AI rows
-    list.querySelectorAll('.ai-late-row, .ai-late-reason').forEach(function(el) { el.remove(); });
-
-    console.log('Creating rows for', orders.length, 'orders');
-  orders.forEach(function(order, idx) {
+  newOrders.forEach(function(order, idx) {
       var row = document.createElement('div');
       row.className = 'ai-late-row';
       row.style.cssText = 'display:grid;grid-template-columns:auto 1fr 1fr auto auto;gap:8px;align-items:end;margin-bottom:4px;';
 
       var num = document.createElement('div');
       num.className = 'issue-num';
-      num.textContent = (idx + 1) + '.';
+      num.textContent = (existingCount + idx + 1) + '.';
 
       var nameInp = document.createElement('input');
       nameInp.type = 'text'; nameInp.value = order.customer_name || '';
@@ -1909,7 +2152,9 @@ async function analyseLateImage() {
       row.appendChild(nameInp);
       row.appendChild(minsInp);
       row.appendChild(flag);
-      row.appendChild(makeRemoveBtn('late-list', row));
+      var rmBtn = makeRemoveBtn('late-list', row);
+      rmBtn.addEventListener('click', function() { if (!row.isConnected && row._reasonRow) row._reasonRow.remove(); });
+      row.appendChild(rmBtn);
 
       // Reason + happy row
       var reasonRow = document.createElement('div');
@@ -1953,6 +2198,7 @@ async function analyseLateImage() {
       row.dataset.orderNum = order.customer_name;
       row.dataset.mins = order.minutes_late;
       row._reasonInp = reasonInp;
+      row._reasonRow = reasonRow;
 
       list.appendChild(row);
       list.appendChild(reasonRow);
@@ -1961,6 +2207,8 @@ async function analyseLateImage() {
 
   btn.textContent = '\u2713 Analysed \u2014 Re-analyse';
   btn.disabled = false;
+  window._lateAnalysing = false;
+  if (window._lateRerun) { window._lateRerun = false; analyseLateImage(); }
 }
 
 function handlePsImage(input) {
@@ -2452,7 +2700,11 @@ function selectSite(site) {
   var chefFallback = {
    bridport: ['Ali','Saiful','Shahed','Nayeb','Rahim','Lokman'],
     dorchester: ['Rajat','Koies','Raju','Samir'],
-    rivaaz: ['Sawar','Sahan','Misbah','Rukon','Najmul','Mujamul']
+    rivaaz: ['Sawar','Sahan','Misbah','Rukon','Najmul','Mujamul','Gulam']
+  };
+  // Chefs who must always be listed even if missing from the Staff tab
+  var extraChefs = {
+    rivaaz: ['Gulam']
   };
   var chefContainer = document.getElementById('f-chef-off');
   chefContainer.innerHTML = '';
@@ -2460,15 +2712,7 @@ function selectSite(site) {
   if (halfDayContainer) halfDayContainer.innerHTML = '';
   window._noChefOff = false;
 
-  // Always populate immediately from fallback, then try Sheet
-  var siteKey = site === 'rivaaz' ? 'lymington' : site;
-  var initialNames = chefFallback[site] || chefFallback[siteKey] || [];
-  initialNames.forEach(function(name) {
-    makeChefBtn(chefContainer, name, false);
-    if (halfDayContainer) makeChefBtn(halfDayContainer, name, true);
-  });
-
-  // Also clear chips containers before populating
+  // Clear chips containers first, then populate immediately from fallback, then try Sheet
   var chipsDay = document.getElementById('chef-chips-day');
   var chipsHalf = document.getElementById('chef-chips-half');
   if (chipsDay) chipsDay.innerHTML = '';
@@ -2478,6 +2722,13 @@ function selectSite(site) {
   if (offSel) offSel.innerHTML = '';
   if (halfSel) halfSel.innerHTML = '';
 
+  var siteKey = site === 'rivaaz' ? 'lymington' : site;
+  var initialNames = chefFallback[site] || chefFallback[siteKey] || [];
+  initialNames.forEach(function(name) {
+    makeChefBtn(chefContainer, name, false);
+    if (halfDayContainer) makeChefBtn(halfDayContainer, name, true);
+  });
+
   // Try to load chefs from Google Sheet via doGet
   try {
     var chefUrl = SHEETS_WEBHOOK_URL + '?action=getChefs&site=' + encodeURIComponent(site);
@@ -2485,6 +2736,9 @@ function selectSite(site) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.chefs && data.chefs.length > 0) {
+        // Remember anything already tapped on the fallback chips
+        var keepOff = offSel ? Array.from(offSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value;}) : [];
+        var keepHalf = halfSel ? Array.from(halfSel.options).filter(function(o){return o.selected;}).map(function(o){return o.value;}) : [];
         // Clear fallback chips and reload from sheet
         if (chipsDay) chipsDay.innerHTML = '';
         if (chipsHalf) chipsHalf.innerHTML = '';
@@ -2494,6 +2748,13 @@ function selectSite(site) {
           makeChefBtn(null, name, false);
           makeChefBtn(null, name, true);
         });
+        (extraChefs[site] || []).forEach(function(name) {
+          var listed = data.chefs.some(function(n) { return String(n).trim().toLowerCase() === name.toLowerCase(); });
+          if (!listed) { makeChefBtn(null, name, false); makeChefBtn(null, name, true); }
+        });
+        // Re-apply earlier taps
+        keepOff.forEach(function(n){ var c = chipsDay && chipsDay.querySelector('[data-chef="' + n + '"]'); if (c && c.dataset.selected !== 'true') c.click(); });
+        keepHalf.forEach(function(n){ var c = chipsHalf && chipsHalf.querySelector('[data-chef="' + n + '"]'); if (c && c.dataset.selected !== 'true') c.click(); });
       }
     })
     .catch(function() {}); // silently ignore - fallback already shown
@@ -3167,7 +3428,7 @@ function getLateOrdersData() {
     if (customer || mins) result.push({ order: customer, mins: mins, reason: reason, happy: happy, contacted: contacted });
   });
   // Manually added rows
-  document.querySelectorAll('#late-list > div[style*="grid-template-columns:auto 1fr 1fr auto auto"]').forEach(function(row) {
+  document.querySelectorAll('#late-list > div[style*="grid-template-columns:auto 1fr 1fr auto auto"]:not(.ai-late-row)').forEach(function(row) {
     var inputs = row.querySelectorAll('input');
     if (inputs.length >= 2) {
       var order = inputs[0].value.trim();
@@ -3582,7 +3843,7 @@ function submitReport() {
       ckStock: getCkStockData(),
       drinksOrder: getDrinksOrderData(),
     drinksOrder: getDrinksOrderData(),
-      issues: getListValues('issue-list', 'textarea'),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = getListValues('issue-list', 'textarea'); return u ? [u].concat(l) : l; })(),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders,
       // ── Sheet-mapped fields (Apps Script v3 keys) ──
@@ -3630,7 +3891,7 @@ function submitReport() {
       stock_to_order: report.stock,
       wastage: report.wastage,
       table_deposits: getDeposits(),
-      issues: getListValues('issue-list', 'textarea').join(' | '),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = getListValues('issue-list', 'textarea'); return (u ? [u].concat(l) : l).join(' | '); })(),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders
     };
@@ -3665,6 +3926,9 @@ function resetForm() {
   extractedPsData = {};
   checkPaymentOrders = [];
   window._deliveryAnalysed = false;
+  window._deliveryAnalysing = false;
+  window._deliveryCache = {};
+  window._lateCache = {};
   window._openingChecklist = '';
   window._fridgeChecklist = '';
   window._drinksStock = '';
