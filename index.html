@@ -895,7 +895,7 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     if (!driversMap[key]) driversMap[key] = { name: d.driver, deliveries: [], cashOrders: [] };
     var isCash = (d.payment || '').toLowerCase().trim() === 'cash';
     var cashAmt = parseFloat(d.cash_amount) || 0;
-    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt, flag: d.flag || '', source: d.distSource || '', matched: d.matched || '', method: d.method || '' });
+    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt, flag: d.flag || '', source: d.distSource || '', matched: d.matched || '', method: d.method || '', orderNo: d.order_no || '', postcode: d.postcode || '' });
     if (isCash && cashAmt > 0) {
       driversMap[key].cashOrders.push({ address: d.address || '—', amount: cashAmt });
     }
@@ -952,7 +952,11 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
         : (dlv.method === 'place' || dlv.method === 'address') && dlv.matched ? ' — found: ' + dlv.matched : '';
       var flagLabel = dlv.flag ? ' ⚠ ' + dlv.flag : '';
       if (dlv.flag) driverFlags++;
-      deliveryDetails.push(dlv.address + ' (' + miles.toFixed(1) + 'mi' + srcLabel + ' = £' + rate + ')' + payLabel + flagLabel);
+      var measuredTo = dlv.source === 'estimate' ? 'AI estimate (not found on Maps)'
+        : dlv.method === 'postcode' ? 'postcode ' + (dlv.matched || dlv.postcode)
+        : dlv.matched ? 'found: ' + dlv.matched : '';
+      deliveryDetails.push({ orderNo: dlv.orderNo, address: dlv.address, measuredTo: measuredTo, miles: miles, rate: rate, payment: dlv.payment || '', flag: dlv.flag || '',
+        text: (dlv.orderNo ? '#' + dlv.orderNo + ' ' : '') + dlv.address + ' (' + miles.toFixed(1) + 'mi' + srcLabel + ' = £' + rate + ')' + payLabel + flagLabel });
     });
 
     // Build driver row
@@ -1026,17 +1030,44 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
       row.appendChild(cashBanner);
     }
 
-    // Delivery breakdown (collapsible)
+    // Delivery breakdown — every drop the driver did, so it can be checked against Orderlord
     if (deliveryDetails.length > 0) {
       var breakdown = document.createElement('div');
-      breakdown.style.cssText = 'font-size:11px;color:var(--muted);line-height:1.8;border-top:1px solid var(--border);padding-top:6px;margin-bottom:8px;';
-      breakdown.innerHTML = '';
-      deliveryDetails.forEach(function(line) {
-        var li = document.createElement('div');
-        li.textContent = '• ' + line;
-        if (line.indexOf('⚠') !== -1) { li.style.color = 'var(--red)'; li.style.fontWeight = '700'; }
-        breakdown.appendChild(li);
+      breakdown.className = 'drv-breakdown';
+      breakdown.style.cssText = 'border-top:1px solid var(--border);padding-top:8px;margin-bottom:10px;overflow-x:auto;';
+      var tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:11.5px;color:var(--text);font-family:var(--sans);';
+      var thead = document.createElement('tr');
+      ['#', 'Order', 'Address', 'Measured to', 'Miles', 'Fuel', 'Payment'].forEach(function(h, hi) {
+        var th = document.createElement('th');
+        th.textContent = h;
+        th.style.cssText = 'text-align:' + (hi >= 4 && hi <= 5 ? 'right' : 'left') + ';font-weight:600;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid var(--border);white-space:nowrap;';
+        thead.appendChild(th);
       });
+      tbl.appendChild(thead);
+      deliveryDetails.forEach(function(d, di) {
+        var tr = document.createElement('tr');
+        [String(di + 1), d.orderNo || '—', d.address || '—', d.measuredTo || '—', d.miles.toFixed(1), '£' + d.rate, d.payment || '—'].forEach(function(v, ci) {
+          var td = document.createElement('td');
+          td.textContent = v;
+          td.style.cssText = 'padding:4px 6px;border-bottom:1px solid rgba(201,185,106,.12);vertical-align:top;' + (ci >= 4 && ci <= 5 ? 'text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;' : '') + (ci === 3 ? 'color:var(--muted);' : '');
+          tr.appendChild(td);
+        });
+        tbl.appendChild(tr);
+        if (d.flag) {
+          tr.style.background = 'rgba(217,64,64,.10)';
+          var fr = document.createElement('tr'), fd = document.createElement('td');
+          fd.colSpan = 7; fd.textContent = '⚠ ' + d.flag;
+          fd.style.cssText = 'padding:2px 6px 6px;color:var(--red);font-weight:700;font-size:11px;background:rgba(217,64,64,.10);';
+          fr.appendChild(fd); tbl.appendChild(fr);
+        }
+      });
+      var tot = document.createElement('tr'), tl = document.createElement('td'), tv = document.createElement('td'), tb = document.createElement('td');
+      tl.colSpan = 5; tl.textContent = deliveryDetails.length + ' drop' + (deliveryDetails.length > 1 ? 's' : '') + ' — total fuel';
+      tl.style.cssText = 'padding:6px;text-align:right;font-weight:700;color:var(--gold);';
+      tv.textContent = '£' + totalFuel.toFixed(2); tv.style.cssText = 'padding:6px;text-align:right;font-weight:700;color:var(--gold);white-space:nowrap;';
+      tot.appendChild(tl); tot.appendChild(tv); tot.appendChild(tb); tbl.appendChild(tot);
+      breakdown.appendChild(tbl);
       row.appendChild(breakdown);
     }
 
@@ -1086,11 +1117,11 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
       this.style.borderColor = isPaid ? 'var(--border)' : 'var(--gold)';
     };
 
-    // Delivery breakdown — hidden by default (shown if anything needs checking), toggle on driver name click
+    // Delivery breakdown — shown by default so every drop can be checked; tap the driver's name to hide/show
     if (breakdown) {
-      breakdown.style.display = driverFlags ? 'block' : 'none';
+      breakdown.style.display = 'block';
       nameEl.style.cursor = 'pointer';
-      nameEl.title = 'Click to see delivery breakdown';
+      nameEl.title = 'Tap to hide or show the deliveries';
       nameEl.onclick = function() {
         breakdown.style.display = breakdown.style.display === 'none' ? 'block' : 'none';
       };
@@ -1098,6 +1129,7 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
 
     // Also store driver name as data attribute
     row.dataset.driverName = driver.name;
+    row.dataset.deliveries = deliveryDetails.map(function(d, i) { return (i + 1) + '. ' + d.text; }).join('\n');
     fuelInp.dataset.driverName = driver.name;
 
     fields.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;align-items:end;';
@@ -3390,7 +3422,7 @@ function getDrivers() {
     var cashBtn=row.querySelector('[data-cash-received]');
     var cashReceived=cashBtn?cashBtn.dataset.cashReceived==='true':null;
     var cashTotal=0; row.querySelectorAll('.cash-order-amount').forEach(function(el){cashTotal+=parseFloat(el.dataset.amount||0);});
-    if(name) drivers.push({name:name,fuel:fuel||'0',fuelAuto:row.dataset.calcFuel||'',fuelOverrideReason:row.dataset.overrideReason||'',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():'',cashReceived:cashReceived,cashTotal:cashTotal>0?cashTotal:null});
+    if(name) drivers.push({name:name,fuel:fuel||'0',fuelAuto:row.dataset.calcFuel||'',fuelOverrideReason:row.dataset.overrideReason||'',deliveries:row.dataset.deliveries||'',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():'',cashReceived:cashReceived,cashTotal:cashTotal>0?cashTotal:null});
   });
   document.querySelectorAll('#driver-list .driver-row:not(.ai-driver-row)').forEach(function(row) {
     var name='';
