@@ -814,26 +814,28 @@ function deliveryDestination(d) {
   return addr;
 }
 
-// Calculate real driving distances from restaurant to each delivery address
-async function getRealDistances(addresses) {
-  if (!addresses || !addresses.length) return { map: {}, error: '' };
-  var origin = SITE_ORIGINS[currentSite] || SITE_ORIGINS.bridport;
+// Driving distance from the restaurant to each delivery (one way).
+// The server measures to the MIDDLE OF THE POSTCODE when there is one (the first line
+// of an address is often typed wrong), expands local place names such as "Freshwater",
+// and otherwise looks the address up near the restaurant. Results come back in order.
+async function getRealDistances(deliveries) {
+  if (!deliveries || !deliveries.length) return { results: [], error: '' };
   try {
     var resp = await fetch('/.netlify/functions/maps-distance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origin: origin, destinations: addresses })
+      body: JSON.stringify({
+        site: currentSite || 'bridport',
+        deliveries: deliveries.map(function(d) { return { address: d.address || '', postcode: d.postcode || '' }; })
+      })
     });
     var data = await resp.json();
-    var map = {};
-    (data.results || []).forEach(function(r) {
-      if (r.status === 'OK' && r.miles != null) map[r.destination] = r.miles;
-    });
     if (data.error) console.warn('Maps distance error:', data.error);
-    return { map: map, error: data.error || '' };
+    if (data.warning) console.warn('Maps distance warning:', data.warning);
+    return { results: data.results || [], error: data.error || (resp.ok ? '' : 'HTTP ' + resp.status) };
   } catch (e) {
     console.warn('Maps distance fetch failed:', e);
-    return { map: {}, error: e.message || 'Maps lookup failed' };
+    return { results: [], error: e.message || 'Maps lookup failed' };
   }
 }
 
@@ -853,34 +855,28 @@ function calcFuelRate(miles) {
 }
 
 async function populateDriversFromScreenshot(deliveriesFlat) {
-  // Get all unique destinations from deliveries and fetch real distances
-  var uniqueAddresses = [];
-  (deliveriesFlat || []).forEach(function(d) {
-    d._dest = deliveryDestination(d);
-    if (d._dest && !uniqueAddresses.includes(d._dest)) uniqueAddresses.push(d._dest);
-  });
-
   // Fetch real distances from Google Maps (one way, restaurant -> customer)
-  var mapsResult = { map: {}, error: '' };
-  if (uniqueAddresses.length > 0) {
+  var list0 = deliveriesFlat || [];
+  var mapsResult = { results: [], error: '' };
+  if (list0.length) {
     var statusEl = document.getElementById('delivery-analysis-status');
-    if (statusEl) statusEl.textContent = 'Calculating real distances via Google Maps...';
-    mapsResult = await getRealDistances(uniqueAddresses);
+    if (statusEl) statusEl.textContent = 'Calculating distances via Google Maps (postcode centre)...';
+    mapsResult = await getRealDistances(list0);
   }
-  var distanceMap = mapsResult.map || {};
   var distanceSummary = { maps: 0, estimated: 0, flagged: 0, error: mapsResult.error || '' };
-  (deliveriesFlat || []).forEach(function(d) {
+  list0.forEach(function(d, i) {
     var aiMiles = parseFloat(d.miles);
-    var gMiles = d._dest ? distanceMap[d._dest] : undefined;
+    var r = mapsResult.results[i] || {};
     d.flag = '';
-    if (gMiles !== undefined && gMiles !== null) {
-      if (gMiles > MAX_SANE_MILES) {
+    d.matched = r.matched || '';
+    d.method = r.method || '';
+    if (r.miles !== undefined && r.miles !== null) {
+      d.miles = r.miles; d.distSource = 'maps';
+      if (r.note) d.flag = r.note;
+      if (r.miles > MAX_SANE_MILES) {
         // Google probably matched the wrong place — fall back to the estimate if it looks sensible
-        d.flag = 'Google says ' + gMiles + 'mi — check address';
         if (!isNaN(aiMiles) && aiMiles > 0 && aiMiles <= MAX_SANE_MILES) { d.miles = aiMiles; d.distSource = 'estimate'; }
-        else { d.miles = gMiles; d.distSource = 'maps'; }
-      } else {
-        d.miles = gMiles; d.distSource = 'maps';
+        d.flag = 'Google says ' + r.miles + 'mi — check address';
       }
     } else {
       d.miles = isNaN(aiMiles) ? 0 : aiMiles;
@@ -899,7 +895,7 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     if (!driversMap[key]) driversMap[key] = { name: d.driver, deliveries: [], cashOrders: [] };
     var isCash = (d.payment || '').toLowerCase().trim() === 'cash';
     var cashAmt = parseFloat(d.cash_amount) || 0;
-    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt, flag: d.flag || '', source: d.distSource || '' });
+    driversMap[key].deliveries.push({ address: d.address || '—', miles: parseFloat(d.miles) || 0, payment: d.payment || '', cashAmount: cashAmt, flag: d.flag || '', source: d.distSource || '', matched: d.matched || '', method: d.method || '' });
     if (isCash && cashAmt > 0) {
       driversMap[key].cashOrders.push({ address: d.address || '—', amount: cashAmt });
     }
@@ -919,6 +915,8 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
       wage: w ? w.value : '',
       fuel: f ? f.value : '',
       fuelEdited: !!(f && f.dataset.userEdited === 'true'),
+      overrideReason: r.dataset.overrideReason || '',
+      overrideFor: r.dataset.overrideFor || '',
       calcFuel: r.dataset.calcFuel || '',
       fuelPaid: !!(fp && fp.dataset.paid === 'true'),
       wagePaid: !!(wp && wp.dataset.wagePaid === 'true'),
@@ -949,7 +947,9 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
       var rate = calcFuelRate(miles);
       totalFuel += rate;
       var payLabel = dlv.payment ? ' [' + dlv.payment + ']' : '';
-      var srcLabel = dlv.source === 'estimate' ? ' est.' : '';
+      var srcLabel = dlv.source === 'estimate' ? ' est.'
+        : dlv.method === 'postcode' ? ' to ' + dlv.matched
+        : (dlv.method === 'place' || dlv.method === 'address') && dlv.matched ? ' — found: ' + dlv.matched : '';
       var flagLabel = dlv.flag ? ' ⚠ ' + dlv.flag : '';
       if (dlv.flag) driverFlags++;
       deliveryDetails.push(dlv.address + ' (' + miles.toFixed(1) + 'mi' + srcLabel + ' = £' + rate + ')' + payLabel + flagLabel);
@@ -1051,7 +1051,8 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     fuelInp.style.cssText = 'background:var(--green);border:1px solid var(--border);border-radius:5px;padding:10px;color:var(--gold);font-weight:700;font-family:var(--sans);font-size:13px;outline:none;';
     fuelInp.setAttribute('oninput', 'formatCurrency(this)');
     fuelInp.addEventListener('input', function() { this.dataset.userEdited = 'true'; });
-    fuelInp.title = 'Fuel money (auto-calculated from deliveries)';
+    fuelInp.addEventListener('change', function() { checkFuelOverride(row); });
+    fuelInp.title = 'Fuel money (auto-calculated from deliveries) — changing it needs a reason';
 
     var wageInp = document.createElement('input');
     wageInp.type = 'text'; wageInp.className = 'drv-wage';
@@ -1114,7 +1115,10 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
     var prev = prevState[(driver.name || '').toLowerCase().trim()];
     if (prev) {
       if (prev.wage) wageInp.value = prev.wage;
-      if (prev.fuelEdited) { fuelInp.value = prev.fuel; fuelInp.dataset.userEdited = 'true'; }
+      if (prev.fuelEdited) {
+        fuelInp.value = prev.fuel; fuelInp.dataset.userEdited = 'true';
+        if (prev.overrideReason) { row.dataset.overrideReason = prev.overrideReason; row.dataset.overrideFor = prev.overrideFor; }
+      }
       var fuelUnchanged = prev.calcFuel === calcFuelStr || prev.fuelEdited;
       if (prev.fuelPaid && fuelUnchanged) paidBtn.click();
       if (prev.fuelPaid && !fuelUnchanged) {
@@ -1130,6 +1134,7 @@ async function populateDriversFromScreenshot(deliveriesFlat) {
       }
     }
 
+    showFuelOverrideNote(row);
     list.insertBefore(row, list.firstChild);
   });
 
@@ -1801,7 +1806,7 @@ async function analyseDeliveryImage() {
 
   var allImgs = imgs.length ? imgs : [{ base64: imgBase64, mediaType: mediaType }];
   var siteAddr = (window.SITE_ADDRESSES && currentSite) ? (window.SITE_ADDRESSES[currentSite] || '') : '';
-  var prompt = 'This is one page of an Orderlord delivery list. Extract EVERY delivery visible on THIS page only — read every row carefully, top to bottom. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"order_no": "1042", "driver": "Jason Hyde", "address": "14 High Street, Bridport", "postcode": "DT6 3AB", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each row: order_no = the order number / ID exactly as shown ("" if there is none), driver = courier name exactly as shown, address = the FULL delivery address exactly as written including house number, street AND town or village, postcode = the UK postcode if one is visible ("" if not), miles = your best guess of the driving distance from the restaurant at ' + siteAddr + ' (only used as a backup), payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash payment). No markdown, no explanation, just JSON.';
+  var prompt = 'This is one page of an Orderlord delivery list. Extract EVERY delivery visible on THIS page only — read every row carefully, top to bottom. Look at the Payment column and Cash column carefully. Return ONLY valid JSON: {"deliveries": [{"order_no": "1042", "driver": "Jason Hyde", "address": "14 High Street, Bridport", "postcode": "DT6 3AB", "miles": 2.1, "payment": "cash", "cash_amount": 23.50}]}. For each row: order_no = the order number / ID exactly as shown ("" if there is none), driver = courier name exactly as shown, address = the FULL delivery address exactly as written including house number, street AND town or village, postcode = the UK postcode EXACTLY as shown, letter by letter (e.g. "DT6 4PT") — this is the most important field because distance is measured to the postcode, so read it very carefully; "" if no postcode is visible. If the address is only a place or holiday park name (e.g. "Freshwater", "West Bay Holiday Park, caravan 12"), copy it exactly as written, miles = your best guess of the driving distance from the restaurant at ' + siteAddr + ' (only used as a backup), payment = payment method exactly as shown (e.g. cash, je card, preoday, UberEats, bar card machine, check payment!!!!), cash_amount = the number in the Cash column as a float (0 if blank or not cash payment). No markdown, no explanation, just JSON.';
 
   // Screenshots that were already read are taken from the cache, so adding page 3
   // later in the night only sends page 3 to the AI — and pages 1-2 read the same as before.
@@ -3385,7 +3390,7 @@ function getDrivers() {
     var cashBtn=row.querySelector('[data-cash-received]');
     var cashReceived=cashBtn?cashBtn.dataset.cashReceived==='true':null;
     var cashTotal=0; row.querySelectorAll('.cash-order-amount').forEach(function(el){cashTotal+=parseFloat(el.dataset.amount||0);});
-    if(name) drivers.push({name:name,fuel:fuel||'0',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():'',cashReceived:cashReceived,cashTotal:cashTotal>0?cashTotal:null});
+    if(name) drivers.push({name:name,fuel:fuel||'0',fuelAuto:row.dataset.calcFuel||'',fuelOverrideReason:row.dataset.overrideReason||'',wage:wage||'0',amount:fuel||'0',start:startEl?startEl.value.trim():'',end:endEl?endEl.value.trim():'',cashReceived:cashReceived,cashTotal:cashTotal>0?cashTotal:null});
   });
   document.querySelectorAll('#driver-list .driver-row:not(.ai-driver-row)').forEach(function(row) {
     var name='';
@@ -3507,7 +3512,21 @@ function getDeposits() {
 }
 
 // -- SUBMIT --------------------------------------------------------
-function submitReport() {
+async function submitReport() {
+  var rows = document.querySelectorAll('#driver-list .ai-driver-row');
+  for (var ri = 0; ri < rows.length; ri++) {
+    var rw = rows[ri], fi = rw.querySelector('.drv-fuel');
+    if (!fi) continue;
+    var differs = Math.abs(parseCurrency(fi.value) - (parseFloat(rw.dataset.calcFuel || '0') || 0)) >= 0.005;
+    if (differs && !(rw.dataset.overrideReason && rw.dataset.overrideFor === parseCurrency(fi.value).toFixed(2))) {
+      rw.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      var ok = await checkFuelOverride(rw);
+      if (!ok) return; // change was cancelled and the app's figure put back — let them review before submitting
+    }
+  }
+  return submitReportChecked();
+}
+function submitReportChecked() {
   if (!currentSite) { alert('Please select a site first.'); return; }
 
   // Validate Orderlord Daily Report — must be uploaded AND analysed
@@ -3758,7 +3777,8 @@ function submitReport() {
     stock: document.getElementById('f-stock').value.trim(),
     wastage: document.getElementById('f-wastage').value.trim(),
     deposits: getDeposits(),
-    issues: getListValues('issue-list', 'textarea'),
+    issues: fuelOverrideLines().concat(getListValues('issue-list', 'textarea')),
+    fuelOverrides: getFuelOverrides(),
     submittedAt: new Date().toISOString()
   };
 
@@ -3843,7 +3863,8 @@ function submitReport() {
       ckStock: getCkStockData(),
       drinksOrder: getDrinksOrderData(),
     drinksOrder: getDrinksOrderData(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = getListValues('issue-list', 'textarea'); return u ? [u].concat(l) : l; })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = fuelOverrideLines().concat(getListValues('issue-list', 'textarea')); return u ? [u].concat(l) : l; })(),
+      fuelOverrides: getFuelOverrides(),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders,
       // ── Sheet-mapped fields (Apps Script v3 keys) ──
@@ -3891,7 +3912,9 @@ function submitReport() {
       stock_to_order: report.stock,
       wastage: report.wastage,
       table_deposits: getDeposits(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = getListValues('issue-list', 'textarea'); return (u ? [u].concat(l) : l).join(' | '); })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = fuelOverrideLines().concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
+      fuel_overrides: fuelOverrideLines().join(' | '),
+      fuel_override_count: getFuelOverrides().length,
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders
     };
@@ -4154,8 +4177,90 @@ document.getElementById('modal').addEventListener('click', e => {
 
 <script>
 // Custom Yes/No dialog — returns a Promise
+// ── Fuel override: a reason must be typed whenever the auto-calculated fuel is changed ──
+function escHtml(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+async function askFuelOverrideReason(driverName, autoAmt, newAmt) {
+  var base = '<b>Fuel changed for ' + escHtml(driverName) + '</b><br><br>The app worked out <b>£' + autoAmt.toFixed(2) + '</b> from the delivery list. You have entered <b>£' + newAmt.toFixed(2) + '</b>.<br><br>Type the reason for the change. Samantha and Mashayel will see it in the report.';
+  return new Promise(function(resolve) {
+    var msgEl = document.getElementById('yn-msg'), inp = document.getElementById('yn-input');
+    ynLabels('Save reason', 'Cancel change');
+    msgEl.innerHTML = base;
+    document.getElementById('yn-input-wrap').style.display = 'block';
+    inp.value = ''; inp.placeholder = 'e.g. extra trip back to the customer';
+    document.getElementById('yn-overlay').classList.add('open');
+    setTimeout(function(){ inp.focus(); }, 50);
+    window._ynResolve = function(save) {
+      var reason = inp.value.trim();
+      if (save && reason.length < 4) {
+        msgEl.innerHTML = base + '<div style="color:var(--red);margin-top:8px;font-weight:700;">Please type a reason before saving.</div>';
+        inp.focus();
+        return; // keep the box open
+      }
+      document.getElementById('yn-overlay').classList.remove('open');
+      inp.placeholder = '';
+      resolve(save ? reason : null);
+    };
+  });
+}
+function showFuelOverrideNote(row) {
+  var note = row.querySelector('.fuel-override-note');
+  var reason = row.dataset.overrideReason || '';
+  if (!reason) { if (note) note.remove(); return; }
+  if (!note) { note = document.createElement('div'); note.className = 'fuel-override-note'; note.style.cssText = 'font-size:11px;color:var(--amber);margin-top:6px;font-weight:700;'; row.appendChild(note); }
+  note.textContent = '⚠ Fuel changed from £' + row.dataset.calcFuel + ' to £' + parseCurrency(row.querySelector('.drv-fuel').value).toFixed(2) + ' — reason: ' + reason + ' (Samantha and Mashayel will be alerted)';
+}
+async function checkFuelOverride(row) {
+  var inp = row.querySelector('.drv-fuel');
+  if (!inp || row._askingReason) return true;
+  var auto = parseFloat(row.dataset.calcFuel || '0') || 0;
+  var entered = parseCurrency(inp.value);
+  if (Math.abs(entered - auto) < 0.005) { delete row.dataset.overrideReason; inp.dataset.userEdited = 'false'; showFuelOverrideNote(row); return true; }
+  if (row.dataset.overrideReason && row.dataset.overrideFor === entered.toFixed(2)) return true;
+  row._askingReason = true;
+  var reason = await askFuelOverrideReason(row.dataset.driverName || 'driver', auto, entered);
+  row._askingReason = false;
+  if (reason === null) {
+    // cancelled: put the app's figure back
+    inp.value = '£' + auto.toFixed(2); inp.dataset.userEdited = 'false';
+    delete row.dataset.overrideReason; delete row.dataset.overrideFor;
+    showFuelOverrideNote(row);
+    return false;
+  }
+  row.dataset.overrideReason = reason; row.dataset.overrideFor = entered.toFixed(2);
+  showFuelOverrideNote(row);
+  return true;
+}
+// Every changed fuel figure and every hand-entered fuel figure, for the report and alert
+function getFuelOverrides() {
+  var out = [];
+  document.querySelectorAll('#driver-list .ai-driver-row').forEach(function(row) {
+    var inp = row.querySelector('.drv-fuel'); if (!inp) return;
+    var auto = parseFloat(row.dataset.calcFuel || '0') || 0, entered = parseCurrency(inp.value);
+    if (Math.abs(entered - auto) >= 0.005) out.push({ driver: row.dataset.driverName || '', auto: auto.toFixed(2), entered: entered.toFixed(2), reason: row.dataset.overrideReason || '(no reason given)', type: 'override' });
+  });
+  document.querySelectorAll('#driver-list .driver-row:not(.ai-driver-row)').forEach(function(row) {
+    var inp = row.querySelector('.drv-fuel'); if (!inp) return;
+    var entered = parseCurrency(inp.value); if (!(entered > 0)) return;
+    var sel = row.querySelector('select'), name = (sel && sel.value && sel.value !== '__manual__') ? sel.value : '';
+    if (!name) { var t = row.querySelector('input[type="text"]:not(.drv-fuel):not(.drv-wage)'); name = t ? t.value.trim() : ''; }
+    out.push({ driver: name || 'Driver', auto: '', entered: entered.toFixed(2), reason: 'typed in by hand — not worked out from the delivery list', type: 'manual' });
+  });
+  return out;
+}
+function fuelOverrideLines() {
+  return getFuelOverrides().map(function(o) {
+    return o.type === 'override'
+      ? '⚠ FUEL OVERRIDE — ' + o.driver + ': app £' + o.auto + ', entered £' + o.entered + '. Reason: ' + o.reason
+      : '⚠ FUEL ENTERED BY HAND — ' + o.driver + ': £' + o.entered + ' (' + o.reason + ')';
+  });
+}
+function ynLabels(yes, no) {
+  document.getElementById('yn-yes').textContent = yes || 'Yes';
+  document.getElementById('yn-no').textContent = no || 'No';
+}
 function ynDialog(msg) {
   return new Promise(function(resolve) {
+    ynLabels();
     document.getElementById('yn-msg').innerHTML = msg;
     document.getElementById('yn-input-wrap').style.display = 'none';
     document.getElementById('yn-overlay').classList.add('open');
@@ -4165,8 +4270,9 @@ function ynDialog(msg) {
     };
   });
 }
-function ynPrompt(msg) {
+function ynPrompt(msg, yesLabel, noLabel) {
   return new Promise(function(resolve) {
+    ynLabels(yesLabel, noLabel);
     document.getElementById('yn-msg').innerHTML = msg;
     document.getElementById('yn-input-wrap').style.display = 'block';
     document.getElementById('yn-input').value = '';
