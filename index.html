@@ -4212,7 +4212,7 @@ document.getElementById('modal').addEventListener('click', e => {
 // ── Fuel override: a reason must be typed whenever the auto-calculated fuel is changed ──
 function escHtml(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 async function askFuelOverrideReason(driverName, autoAmt, newAmt) {
-  var base = '<b>Fuel changed for ' + escHtml(driverName) + '</b><br><br>The app worked out <b>£' + autoAmt.toFixed(2) + '</b> from the delivery list. You have entered <b>£' + newAmt.toFixed(2) + '</b>.<br><br>Type the reason for the change. Samantha and Mashayel will see it in the report.';
+  var base = '<b>Fuel changed for ' + escHtml(driverName) + '</b><br><br>The app worked out <b>£' + autoAmt.toFixed(2) + '</b> from the delivery list. You have entered <b>£' + newAmt.toFixed(2) + '</b>.<br><br>Type the reason for the change. This will be seen by management.';
   return new Promise(function(resolve) {
     var msgEl = document.getElementById('yn-msg'), inp = document.getElementById('yn-input');
     ynLabels('Save reason', 'Cancel change');
@@ -4239,7 +4239,7 @@ function showFuelOverrideNote(row) {
   var reason = row.dataset.overrideReason || '';
   if (!reason) { if (note) note.remove(); return; }
   if (!note) { note = document.createElement('div'); note.className = 'fuel-override-note'; note.style.cssText = 'font-size:11px;color:var(--amber);margin-top:6px;font-weight:700;'; row.appendChild(note); }
-  note.textContent = '⚠ Fuel changed from £' + row.dataset.calcFuel + ' to £' + parseCurrency(row.querySelector('.drv-fuel').value).toFixed(2) + ' — reason: ' + reason + ' (Samantha and Mashayel will be alerted)';
+  note.textContent = '⚠ Fuel changed from £' + row.dataset.calcFuel + ' to £' + parseCurrency(row.querySelector('.drv-fuel').value).toFixed(2) + ' — reason: ' + reason + ' (management will be alerted)';
 }
 async function checkFuelOverride(row) {
   var inp = row.querySelector('.drv-fuel');
