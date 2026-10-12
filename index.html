@@ -571,6 +571,19 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       <div id="staff-error-list"></div>
       <button class="add-btn" onclick="addStaffError()">+ Add staff error</button>
 
+      <!-- PACKING SPOT CHECKS -->
+      <div class="section-title" id="pack-check-section">Packing — Spot Checks <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;">Open <b id="pack-check-req" style="color:var(--gold);">2</b> random sealed bags before they leave and check every item against the ticket. A bag <b>fails</b> if anything is missing, or if the ticket isn't fully crossed off and initialled, even if the food is all there.</div>
+      <div id="pack-check-list"></div>
+      <button class="add-btn" onclick="addPackCheck()">+ Add spot check</button>
+
+      <!-- MISSING ITEMS -->
+      <div class="section-title" id="missing-section">Missing Items <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;">Every item missing from an order tonight: caught at handover, found in a spot check, or reported by a customer. Use the packer's initials from the ticket.</div>
+      <label style="display:flex;gap:10px;align-items:center;font-size:14px;margin-bottom:12px;cursor:pointer;"><input type="checkbox" id="f-no-missing" onchange="toggleNoMissing(this)" style="width:18px;height:18px;"> No missing items reported tonight</label>
+      <div id="missing-list"></div>
+      <button class="add-btn" id="missing-add-btn" onclick="addMissing()">+ Add missing item</button>
+
       <!-- STOCK TO ORDER -->
       <div class="section-title">Stock to Order</div>
       <div class="field">
@@ -2900,6 +2913,7 @@ function selectSite(site) {
     dateDropdown.addEventListener('change', function() {
       buildCkStockSection(currentSite);
       buildDrinksOrderSection(currentSite, this.value);
+      updatePackReq();
       // Show drinks stock section on Bridport Sunday
       var dsEl = document.getElementById('drinks-stock-section');
       if (dsEl) {
@@ -2916,6 +2930,9 @@ function selectSite(site) {
   if (!document.getElementById('late-list').children.length) addLate();
   if (!document.getElementById('discount-list').children.length) addDiscount();
   if (!document.getElementById('staff-error-list').children.length) addStaffError();
+  updatePackReq();
+  var nmCb = document.getElementById('f-no-missing');
+  if (nmCb && !nmCb.checked && !document.getElementById('missing-list').children.length) addMissing();
   if (!document.getElementById('issue-list').children.length) addIssue();
   if (!document.getElementById('deposit-list').children.length) addDeposit();
   if (!document.getElementById('petty-list').children.length) addPetty();
@@ -3283,6 +3300,148 @@ function getStaffErrors() {
     }
   });
   return result;
+}
+
+// ── Packing spot checks & missing items ──
+var PACK_FIELD = 'width:100%;background:var(--green);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;outline:none;-webkit-appearance:none;';
+function packChecksRequired() {
+  var el = document.getElementById('f-date');
+  var d = el && el.value ? new Date(el.value) : new Date();
+  var day = d.getDay();
+  return (day === 5 || day === 6) ? 3 : 2;   // Fri & Sat = 3, other nights = 2
+}
+function updatePackReq() {
+  var req = packChecksRequired();
+  var lbl = document.getElementById('pack-check-req'); if (lbl) lbl.textContent = req;
+  var list = document.getElementById('pack-check-list');
+  if (list) while (list.querySelectorAll('.pack-check-row').length < req) addPackCheck();
+}
+function packInitials(ph) {
+  var i = document.createElement('input'); i.type = 'text'; i.placeholder = ph || 'Packer initials'; i.maxLength = 4;
+  i.style.cssText = PACK_FIELD;
+  i.addEventListener('input', function(){ this.value = this.value.toUpperCase().replace(/[^A-Z]/g, ''); });
+  return i;
+}
+function packSelect(opts) {
+  var sel = document.createElement('select'); sel.style.cssText = PACK_FIELD;
+  opts.forEach(function(o) {
+    var opt = document.createElement('option'); opt.value = o[0]; opt.textContent = o[1];
+    if (!o[0]) { opt.disabled = true; opt.selected = true; }
+    sel.appendChild(opt);
+  });
+  return sel;
+}
+var PACK_RESULTS = [['','Result...'],['pass','✓ Pass'],['missing','✗ Fail: item missing'],['ticket','✗ Fail: ticket not crossed off / initialled'],['seal','✗ Fail: lid or seal not secure'],['wrong','✗ Fail: wrong item']];
+function addPackCheck() {
+  var list = document.getElementById('pack-check-list');
+  var num = list.querySelectorAll('.pack-check-row').length + 1;
+  var w = document.createElement('div'); w.className = 'pack-check-row';
+  w.style.cssText = 'background:var(--green-mid);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;';
+  var r1 = document.createElement('div'); r1.style.cssText = 'display:grid;grid-template-columns:auto 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px;';
+  var n = document.createElement('div'); n.className = 'issue-num'; n.textContent = num + '.';
+  var order = document.createElement('input'); order.type = 'text'; order.placeholder = 'Order #'; order.className = 'pc-order'; order.style.cssText = PACK_FIELD;
+  var ini = packInitials('Packer initials'); ini.className = 'pc-packer';
+  r1.appendChild(n); r1.appendChild(order); r1.appendChild(ini); r1.appendChild(makeRemoveBtn('pack-check-list', w));
+  var r2 = document.createElement('div'); r2.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;';
+  var res = packSelect(PACK_RESULTS); res.className = 'pc-result';
+  var det = document.createElement('input'); det.type = 'text'; det.placeholder = 'What was wrong?'; det.className = 'pc-detail'; det.style.cssText = PACK_FIELD;
+  res.addEventListener('change', function(){ w.style.borderColor = this.value === 'pass' ? 'var(--green-acc)' : 'var(--red)'; });
+  r2.appendChild(res); r2.appendChild(det);
+  w.appendChild(r1); w.appendChild(r2); list.appendChild(w);
+}
+function getPackChecks() {
+  var out = [];
+  document.querySelectorAll('.pack-check-row').forEach(function(w) {
+    var o = { order: w.querySelector('.pc-order').value.trim(), packer: w.querySelector('.pc-packer').value.trim(),
+              result: w.querySelector('.pc-result').value, detail: w.querySelector('.pc-detail').value.trim() };
+    if (o.order || o.packer || o.result || o.detail) out.push(o);
+  });
+  return out;
+}
+var MISSING_FOUND = [['','How was it found?'],['customer','Customer complaint'],['handover','Driver / FOH at handover'],['spotcheck','Manager spot check'],['other','Other']];
+function addMissing() {
+  var list = document.getElementById('missing-list');
+  var num = list.querySelectorAll('.missing-row').length + 1;
+  var w = document.createElement('div'); w.className = 'missing-row';
+  w.style.cssText = 'background:var(--green-mid);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;';
+  var r1 = document.createElement('div'); r1.style.cssText = 'display:grid;grid-template-columns:auto 1fr 2fr auto;gap:8px;align-items:end;margin-bottom:8px;';
+  var n = document.createElement('div'); n.className = 'issue-num'; n.textContent = num + '.';
+  var order = document.createElement('input'); order.type = 'text'; order.placeholder = 'Order #'; order.className = 'mi-order'; order.style.cssText = PACK_FIELD;
+  var item = document.createElement('input'); item.type = 'text'; item.placeholder = 'Item missing'; item.className = 'mi-item'; item.style.cssText = PACK_FIELD;
+  r1.appendChild(n); r1.appendChild(order); r1.appendChild(item); r1.appendChild(makeRemoveBtn('missing-list', w));
+  var r2 = document.createElement('div'); r2.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;';
+  var ini = packInitials('Packer initials'); ini.className = 'mi-packer';
+  var drv = packInitials('Taken out by (initials)'); drv.className = 'mi-accepted'; drv.title = 'Initials of the driver / FOH who took the bag, if it left the building';
+  r2.appendChild(ini); r2.appendChild(drv);
+  var found = packSelect(MISSING_FOUND); found.className = 'mi-found';
+  w.appendChild(r1); w.appendChild(r2); w.appendChild(found); list.appendChild(w);
+}
+function getMissingItems() {
+  var out = [];
+  document.querySelectorAll('.missing-row').forEach(function(w) {
+    var o = { order: w.querySelector('.mi-order').value.trim(), item: w.querySelector('.mi-item').value.trim(),
+              packer: w.querySelector('.mi-packer').value.trim(), found: w.querySelector('.mi-found').value,
+              acceptedBy: w.querySelector('.mi-accepted').value.trim() };
+    if (o.order || o.item || o.packer || o.found) out.push(o);
+  });
+  return out;
+}
+function toggleNoMissing(cb) {
+  var list = document.getElementById('missing-list'), btn = document.getElementById('missing-add-btn');
+  list.style.display = cb.checked ? 'none' : ''; btn.style.display = cb.checked ? 'none' : '';
+  if (!cb.checked && !list.children.length) addMissing();
+}
+function packResultLabel(v) { var f = PACK_RESULTS.filter(function(r){ return r[0] === v; })[0]; return f ? f[1].replace(/^[✓✗]\s*(Fail:\s*)?/, '') : v; }
+function missingFoundLabel(v) { var f = MISSING_FOUND.filter(function(r){ return r[0] === v; })[0]; return f ? f[1] : v; }
+function packingLines() {
+  var lines = [], checks = getPackChecks(), fails = checks.filter(function(c){ return c.result !== 'pass'; });
+  lines.push('📦 SPOT CHECKS — ' + checks.length + ' done (' + packChecksRequired() + ' required), ' + fails.length + ' failed');
+  fails.forEach(function(c) {
+    lines.push('❌ SPOT CHECK FAIL — #' + c.order + ', packer ' + c.packer + ': ' + packResultLabel(c.result) + (c.detail ? ' — ' + c.detail : ''));
+  });
+  var noMissing = document.getElementById('f-no-missing');
+  if (noMissing && noMissing.checked) lines.push('📦 MISSING ITEMS — none reported');
+  else getMissingItems().forEach(function(m) {
+    lines.push('❌ MISSING ITEM — #' + m.order + ' ' + m.item + ', packer ' + m.packer + ', found by ' + missingFoundLabel(m.found).toLowerCase()
+      + (m.acceptedBy ? ', bag accepted by ' + m.acceptedBy : ''));
+  });
+  return lines;
+}
+function validatePacking() {
+  var req = packChecksRequired(), checks = getPackChecks();
+  var complete = checks.filter(function(c){ return c.order && c.packer && c.result; });
+  var sec = document.getElementById('pack-check-section');
+  if (complete.length < req) {
+    alert('⚠ Packing spot checks: ' + req + ' are required tonight and ' + complete.length + ' ' + (complete.length === 1 ? 'is' : 'are') + ' complete.\nEach one needs the order number, the packer\'s initials and the result.');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+  }
+  if (checks.length > complete.length) {
+    alert('⚠ One of the packing spot checks is only half filled in. Complete it or remove it with ✕.');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+  }
+  var failNoDetail = checks.filter(function(c){ return c.result !== 'pass' && !c.detail; });
+  if (failNoDetail.length) {
+    alert('⚠ Please say what was wrong for each failed spot check.');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+  }
+  var noMissing = document.getElementById('f-no-missing').checked, missing = getMissingItems();
+  var msec = document.getElementById('missing-section');
+  if (noMissing && checks.some(function(c){ return c.result === 'missing'; })) {
+    alert('⚠ A spot check found a missing item, so "No missing items" can\'t be ticked. Add it under Missing Items.');
+    if (msec) msec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+  }
+  if (!noMissing) {
+    var good = missing.filter(function(m){ return m.order && m.item && m.packer && m.found; });
+    if (!missing.length) {
+      alert('⚠ Missing Items: add any missing items, or tick "No missing items reported tonight".');
+      if (msec) msec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+    }
+    if (good.length < missing.length) {
+      alert('⚠ Each missing item needs the order number, the item, the packer\'s initials and how it was found.');
+      if (msec) msec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+    }
+  }
+  return true;
 }
 
 function addRefund() {
@@ -3726,6 +3885,9 @@ function submitReportChecked() {
     }
   }
 
+  // Validate packing spot checks & missing items — mandatory all sites
+  if (!validatePacking()) return;
+
   // Validate cash location — always mandatory regardless of amount
   var locEl = document.getElementById('f-takings-location');
   if (!locEl || !locEl.value) {
@@ -3811,6 +3973,9 @@ function submitReportChecked() {
     deposits: getDeposits(),
     issues: fuelOverrideLines().concat(getListValues('issue-list', 'textarea')),
     fuelOverrides: getFuelOverrides(),
+    packChecks: getPackChecks(),
+    missingItems: (document.getElementById('f-no-missing').checked ? [] : getMissingItems()),
+    packingLines: packingLines(),
     submittedAt: new Date().toISOString()
   };
 
@@ -3895,7 +4060,7 @@ function submitReportChecked() {
       ckStock: getCkStockData(),
       drinksOrder: getDrinksOrderData(),
     drinksOrder: getDrinksOrderData(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = fuelOverrideLines().concat(getListValues('issue-list', 'textarea')); return u ? [u].concat(l) : l; })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return u ? [u].concat(l) : l; })(),
       fuelOverrides: getFuelOverrides(),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders,
@@ -3944,9 +4109,14 @@ function submitReportChecked() {
       stock_to_order: report.stock,
       wastage: report.wastage,
       table_deposits: getDeposits(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = fuelOverrideLines().concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
       fuel_overrides: fuelOverrideLines().join(' | '),
       fuel_override_count: getFuelOverrides().length,
+      packing_checks: getPackChecks().map(function(c){ return '#' + c.order + ' ' + c.packer + ' ' + packResultLabel(c.result) + (c.detail ? ' (' + c.detail + ')' : ''); }).join(' | '),
+      spot_checks_done: getPackChecks().length,
+      spot_checks_failed: getPackChecks().filter(function(c){ return c.result !== 'pass'; }).length,
+      missing_items: (document.getElementById('f-no-missing').checked ? 'None' : getMissingItems().map(function(m){ return '#' + m.order + ' ' + m.item + ' (packer ' + m.packer + ', ' + missingFoundLabel(m.found) + ')'; }).join(' | ')),
+      missing_item_count: (document.getElementById('f-no-missing').checked ? 0 : getMissingItems().length),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders
     };
@@ -4007,9 +4177,10 @@ function resetForm() {
   document.getElementById('nav-new-report').style.display = 'none';
   document.getElementById('login-overlay').classList.remove('hidden');
   clearLocationSelection();
-  ['driver-list','staff-list','late-list','discount-list','deposit-list','issue-list','petty-list','staff-error-list','refund-list'].forEach(id => {
+  ['driver-list','staff-list','late-list','discount-list','deposit-list','issue-list','petty-list','staff-error-list','refund-list','pack-check-list','missing-list'].forEach(id => {
     document.getElementById(id).innerHTML = '';
   });
+  var nmReset = document.getElementById('f-no-missing'); if (nmReset) { nmReset.checked = false; toggleNoMissing(nmReset); document.getElementById('missing-list').innerHTML = ''; }
   ['f-cash','f-float','f-ta-sales','f-ta-orders','f-cook-time','f-cash-in','f-stock',
    'f-wastage','f-covers','f-manager-first','f-manager-surname','f-given-to',
    'f-change-detail','f-ps-discrepancy'].forEach(id => {
@@ -4155,6 +4326,9 @@ function openReport(idx) {
     html += section('Petty Cash', [['Cash in', r.cashIn]]);
   }
 
+  if (r.packingLines?.length) {
+    html += `<div class="modal-section"><h4>Packing</h4>${r.packingLines.map(l => `<div class="modal-row"><span class="val" style="text-align:left;${l.indexOf('❌') === 0 ? 'color:var(--red);' : ''}">${l}</span></div>`).join('')}</div>`;
+  }
   if (r.lateOrders?.filter(Boolean).length) {
     html += `<div class="modal-section"><h4>Late Orders</h4>${r.lateOrders.filter(Boolean).map((l, i) => `<div class="modal-row"><span class="key">${i+1}.</span><span class="val">${l}</span></div>`).join('')}</div>`;
   }
