@@ -2243,6 +2243,9 @@ async function analyseLateImage() {
 
       happyWrap.appendChild(updatedSel);
       happyWrap.appendChild(happySel);
+      var causeSel = makeLateCauseSelect(); causeSel.style.gridColumn = '1 / -1';
+      row._causeSel = causeSel;
+      reasonRow.appendChild(causeSel);
       reasonRow.appendChild(reasonLabel);
       reasonRow.appendChild(reasonInp);
       reasonRow.appendChild(happyWrap);
@@ -3136,13 +3139,45 @@ function addStaff() {
   list.appendChild(row);
 }
 
+// ── Late-order cause (required, all sites) ──
+var LATE_CAUSES = [['','Cause of lateness…'],['kitchen','Kitchen slow'],['driver','Waiting for a driver'],['distance','Long distance'],['batched','Batched with another drop'],['address','Wrong address / hard to find'],['platform','App / platform delay'],['other','Other (explain in reason)']];
+function makeLateCauseSelect() {
+  var sel = document.createElement('select'); sel.className = 'late-cause';
+  sel.style.cssText = 'width:100%;background:var(--green-mid);border:1px solid var(--red);border-radius:5px;padding:9px 10px;color:var(--text);font-family:var(--sans);font-size:13px;outline:none;-webkit-appearance:none;';
+  LATE_CAUSES.forEach(function(o) {
+    var opt = document.createElement('option'); opt.value = o[0]; opt.textContent = o[1];
+    if (!o[0]) { opt.disabled = true; opt.selected = true; }
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', function(){ this.style.borderColor = this.value ? 'var(--border)' : 'var(--red)'; });
+  return sel;
+}
+function lateCauseLabel(v) { var f = LATE_CAUSES.filter(function(c){ return c[0] === v; })[0]; return (f && v) ? f[1].replace(/ \(explain in reason\)$/, '') : ''; }
+function validateLateCauses() {
+  var missing = getLateOrdersData().filter(function(l){ return !l.cause; });
+  if (missing.length) {
+    alert('⚠ Please pick the cause for every late order (' + missing.length + ' still blank).\nIf you choose "Other", explain in the reason box.');
+    var el = document.querySelector('#late-list .late-cause option[value=""]:checked');
+    var sel = el ? el.parentElement : document.getElementById('late-list');
+    if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return false;
+  }
+  var otherNoReason = getLateOrdersData().filter(function(l){ return l.causeKey === 'other' && !l.reasonText; });
+  if (otherNoReason.length) {
+    alert('⚠ A late order has the cause "Other". Please type what happened in the reason.');
+    return false;
+  }
+  return true;
+}
+
 function addLate() {
   var list = document.getElementById('late-list');
-  var row = document.createElement('div');
+  var row = document.createElement('div'); row.className = 'manual-late-row';
   row.style.cssText = 'display:grid;grid-template-columns:auto 1fr 1fr auto auto;gap:8px;align-items:end;margin-bottom:8px;';
-  var num = document.createElement('div'); num.className = 'issue-num'; num.textContent = (list.children.length + 1) + '.';
+  var num = document.createElement('div'); num.className = 'issue-num'; num.textContent = (list.querySelectorAll('.manual-late-row, .ai-late-row').length + 1) + '.';
   var orderInp = document.createElement('input'); orderInp.type = 'text'; orderInp.placeholder = 'Customer name';
   var minsInp = document.createElement('input'); minsInp.type = 'text'; minsInp.inputMode = 'numeric'; minsInp.placeholder = 'Mins late';
+  orderInp.style.cssText = PACK_FIELD.replace('var(--green)', 'var(--green-mid)'); minsInp.style.cssText = PACK_FIELD.replace('var(--green)', 'var(--green-mid)');
   var flag = document.createElement('div'); flag.style.cssText = 'font-size:11px;color:var(--amber);padding-top:11px;min-width:70px;';
   var reasonEl = document.createElement('div');
   reasonEl.style.cssText = 'display:none;grid-column:2/6;font-size:12px;color:var(--muted);padding:2px 0 4px 0;';
@@ -3169,10 +3204,17 @@ function addLate() {
     }
   });
 
+  var causeWrap = document.createElement('div'); causeWrap.className = 'late-cause-wrap';
+  causeWrap.style.cssText = 'margin:0 0 12px 0;';
+  var causeSel = makeLateCauseSelect(); causeWrap.appendChild(causeSel);
+  row._causeSel = causeSel;
+  var rm = makeRemoveBtn('late-list', row);
+  rm.addEventListener('click', function(){ if (!row.isConnected) { reasonEl.remove(); causeWrap.remove(); } });
   row.appendChild(num); row.appendChild(orderInp); row.appendChild(minsInp);
-  row.appendChild(flag); row.appendChild(makeRemoveBtn('late-list', row));
+  row.appendChild(flag); row.appendChild(rm);
   list.appendChild(row);
   list.appendChild(reasonEl);
+  list.appendChild(causeWrap);
 }
 function addDiscount() {
   var list = document.getElementById('discount-list');
@@ -3629,10 +3671,12 @@ function getLateOrdersData() {
     var reason = row._reasonInp ? row._reasonInp.value.trim() : '';
     var happy = row.dataset.happy === 'yes' ? true : row.dataset.happy === 'no' ? false : undefined;
     var contacted = row.dataset.updated === 'yes' ? true : row.dataset.updated === 'no' ? false : undefined;
-    if (customer || mins) result.push({ order: customer, mins: mins, reason: reason, happy: happy, contacted: contacted });
+    var causeKey = row._causeSel ? row._causeSel.value : '';
+    var cause = lateCauseLabel(causeKey);
+    if (customer || mins) result.push({ order: customer, mins: mins, reason: cause ? cause + (reason ? ': ' + reason : '') : reason, reasonText: reason, cause: cause, causeKey: causeKey, happy: happy, contacted: contacted });
   });
   // Manually added rows
-  document.querySelectorAll('#late-list > div[style*="grid-template-columns:auto 1fr 1fr auto auto"]:not(.ai-late-row)').forEach(function(row) {
+  document.querySelectorAll('#late-list > .manual-late-row').forEach(function(row) {
     var inputs = row.querySelectorAll('input');
     if (inputs.length >= 2) {
       var order = inputs[0].value.trim();
@@ -3646,7 +3690,9 @@ function getLateOrdersData() {
           reason = reasonMatch ? reasonMatch[1].trim() : '';
           happy = txt.includes('✓ happy') ? true : txt.includes('✗ not happy') ? false : undefined;
         }
-        result.push({ order: order, mins: mins, reason: reason, happy: happy });
+        var causeKey = row._causeSel ? row._causeSel.value : '';
+        var cause = lateCauseLabel(causeKey);
+        result.push({ order: order, mins: mins, reason: cause ? cause + (reason ? ': ' + reason : '') : reason, reasonText: reason, cause: cause, causeKey: causeKey, happy: happy });
       }
     }
   });
@@ -3896,6 +3942,9 @@ function submitReportChecked() {
   // Validate packing spot checks & missing items — mandatory all sites
   if (!validatePacking()) return;
 
+  // Validate late-order causes — mandatory all sites
+  if (!validateLateCauses()) return;
+
   // Validate cash location — always mandatory regardless of amount
   var locEl = document.getElementById('f-takings-location');
   if (!locEl || !locEl.value) {
@@ -3974,7 +4023,7 @@ function submitReportChecked() {
       })(),
     pettyItems: getPettyItems(),
     cashIn: document.getElementById('f-cash-in').value.trim(),
-    lateOrders: getListValues('late-list', 'input'),
+    lateOrders: getLateOrdersData().map(function(l){ return l.order + ' — ' + l.mins + (l.reason ? ' — ' + l.reason : ''); }),
     discounts: getListValues('discount-list', 'input'),
     stock: document.getElementById('f-stock').value.trim(),
     wastage: document.getElementById('f-wastage').value.trim(),
