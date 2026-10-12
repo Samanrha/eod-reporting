@@ -571,7 +571,8 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       <div id="staff-error-list"></div>
       <button class="add-btn" onclick="addStaffError()">+ Add staff error</button>
 
-      <!-- PACKING SPOT CHECKS -->
+      <!-- PACKING SPOT CHECKS (Bridport & Dorchester only — not Rivaaz) -->
+      <div id="packing-sections">
       <div class="section-title" id="pack-check-section">Packing — Spot Checks <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;">Open <b id="pack-check-req" style="color:var(--gold);">2</b> random sealed bags before they leave and check every item against the ticket. A bag <b>fails</b> if anything is missing, or if the ticket isn't fully crossed off and initialled, even if the food is all there.</div>
       <div id="pack-check-list"></div>
@@ -583,6 +584,7 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
       <label style="display:flex;gap:10px;align-items:center;font-size:14px;margin-bottom:12px;cursor:pointer;"><input type="checkbox" id="f-no-missing" onchange="toggleNoMissing(this)" style="width:18px;height:18px;"> No missing items reported tonight</label>
       <div id="missing-list"></div>
       <button class="add-btn" id="missing-add-btn" onclick="addMissing()">+ Add missing item</button>
+      </div>
 
       <!-- STOCK TO ORDER -->
       <div class="section-title">Stock to Order</div>
@@ -2932,7 +2934,7 @@ function selectSite(site) {
   if (!document.getElementById('staff-error-list').children.length) addStaffError();
   updatePackReq();
   var nmCb = document.getElementById('f-no-missing');
-  if (nmCb && !nmCb.checked && !document.getElementById('missing-list').children.length) addMissing();
+  if (packingApplies() && nmCb && !nmCb.checked && !document.getElementById('missing-list').children.length) addMissing();
   if (!document.getElementById('issue-list').children.length) addIssue();
   if (!document.getElementById('deposit-list').children.length) addDeposit();
   if (!document.getElementById('petty-list').children.length) addPetty();
@@ -3304,6 +3306,7 @@ function getStaffErrors() {
 
 // ── Packing spot checks & missing items ──
 var PACK_FIELD = 'width:100%;background:var(--green);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;outline:none;-webkit-appearance:none;';
+function packingApplies() { return currentSite === 'bridport' || currentSite === 'dorchester'; }
 function packChecksRequired() {
   var el = document.getElementById('f-date');
   var d = el && el.value ? new Date(el.value) : new Date();
@@ -3311,6 +3314,9 @@ function packChecksRequired() {
   return (day === 5 || day === 6) ? 3 : 2;   // Fri & Sat = 3, other nights = 2
 }
 function updatePackReq() {
+  var wrap = document.getElementById('packing-sections');
+  if (wrap) wrap.style.display = packingApplies() ? '' : 'none';
+  if (!packingApplies()) return;
   var req = packChecksRequired();
   var lbl = document.getElementById('pack-check-req'); if (lbl) lbl.textContent = req;
   var list = document.getElementById('pack-check-list');
@@ -3394,6 +3400,7 @@ function toggleNoMissing(cb) {
 function packResultLabel(v) { var f = PACK_RESULTS.filter(function(r){ return r[0] === v; })[0]; return f ? f[1].replace(/^[✓✗]\s*(Fail:\s*)?/, '') : v; }
 function missingFoundLabel(v) { var f = MISSING_FOUND.filter(function(r){ return r[0] === v; })[0]; return f ? f[1] : v; }
 function packingLines() {
+  if (!packingApplies()) return [];
   var lines = [], checks = getPackChecks(), fails = checks.filter(function(c){ return c.result !== 'pass'; });
   lines.push('📦 SPOT CHECKS — ' + checks.length + ' done (' + packChecksRequired() + ' required), ' + fails.length + ' failed');
   fails.forEach(function(c) {
@@ -3408,6 +3415,7 @@ function packingLines() {
   return lines;
 }
 function validatePacking() {
+  if (!packingApplies()) return true;
   var req = packChecksRequired(), checks = getPackChecks();
   var complete = checks.filter(function(c){ return c.order && c.packer && c.result; });
   var sec = document.getElementById('pack-check-section');
@@ -3973,8 +3981,8 @@ function submitReportChecked() {
     deposits: getDeposits(),
     issues: fuelOverrideLines().concat(getListValues('issue-list', 'textarea')),
     fuelOverrides: getFuelOverrides(),
-    packChecks: getPackChecks(),
-    missingItems: (document.getElementById('f-no-missing').checked ? [] : getMissingItems()),
+    packChecks: packingApplies() ? getPackChecks() : [],
+    missingItems: (!packingApplies() || document.getElementById('f-no-missing').checked) ? [] : getMissingItems(),
     packingLines: packingLines(),
     submittedAt: new Date().toISOString()
   };
@@ -4112,11 +4120,11 @@ function submitReportChecked() {
       issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
       fuel_overrides: fuelOverrideLines().join(' | '),
       fuel_override_count: getFuelOverrides().length,
-      packing_checks: getPackChecks().map(function(c){ return '#' + c.order + ' ' + c.packer + ' ' + packResultLabel(c.result) + (c.detail ? ' (' + c.detail + ')' : ''); }).join(' | '),
-      spot_checks_done: getPackChecks().length,
-      spot_checks_failed: getPackChecks().filter(function(c){ return c.result !== 'pass'; }).length,
-      missing_items: (document.getElementById('f-no-missing').checked ? 'None' : getMissingItems().map(function(m){ return '#' + m.order + ' ' + m.item + ' (packer ' + m.packer + ', ' + missingFoundLabel(m.found) + ')'; }).join(' | ')),
-      missing_item_count: (document.getElementById('f-no-missing').checked ? 0 : getMissingItems().length),
+      packing_checks: !packingApplies() ? '' : getPackChecks().map(function(c){ return '#' + c.order + ' ' + c.packer + ' ' + packResultLabel(c.result) + (c.detail ? ' (' + c.detail + ')' : ''); }).join(' | '),
+      spot_checks_done: packingApplies() ? getPackChecks().length : '',
+      spot_checks_failed: !packingApplies() ? '' : getPackChecks().filter(function(c){ return c.result !== 'pass'; }).length,
+      missing_items: !packingApplies() ? '' : (document.getElementById('f-no-missing').checked ? 'None' : getMissingItems().map(function(m){ return '#' + m.order + ' ' + m.item + ' (packer ' + m.packer + ', ' + missingFoundLabel(m.found) + ')'; }).join(' | ')),
+      missing_item_count: !packingApplies() ? '' : (document.getElementById('f-no-missing').checked ? 0 : getMissingItems().length),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders
     };
