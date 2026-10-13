@@ -483,6 +483,18 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
         <button class="add-btn" onclick="addDriver()">+ Add driver</button>
       </div>
 
+      <!-- DELIVERY BAGS -->
+      <div id="bags-section">
+        <div class="section-title" id="bags-title">Delivery Bags <span style="color:var(--red);font-size:12px;font-family:var(--sans);font-weight:400;margin-left:6px;">* Required</span></div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;">When you cash out each driver, count the delivery bags and boxes they bring back. Enter 0 in "Still out" if they returned them all.</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 38px;gap:8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;"><span>Driver</span><span>Returned</span><span>Still out</span><span></span></div>
+        <div id="bag-list"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <button class="add-btn" onclick="syncBagRows(true)">↻ Load tonight's drivers</button>
+          <button class="add-btn" onclick="addBagRow('')">+ Add driver</button>
+        </div>
+      </div>
+
       <!-- STAFF -->
       <div class="section-title">Staff</div>
       <div id="staff-list"></div>
@@ -3002,6 +3014,61 @@ function calcHours(start, end) {
   } catch(e) { return ''; }
 }
 
+// ── Delivery bag tracking (all sites) ──
+function addBagRow(name) {
+  var list = document.getElementById('bag-list');
+  var w = document.createElement('div'); w.className = 'bag-row';
+  w.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px;';
+  var st = 'width:100%;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;outline:none;-webkit-appearance:none;';
+  var n = document.createElement('input'); n.type = 'text'; n.className = 'bag-name'; n.placeholder = 'Driver'; n.value = name || ''; n.style.cssText = st;
+  var r = document.createElement('input'); r.type = 'number'; r.min = '0'; r.inputMode = 'numeric'; r.className = 'bag-returned'; r.placeholder = 'Returned'; r.style.cssText = st;
+  var o = document.createElement('input'); o.type = 'number'; o.min = '0'; o.inputMode = 'numeric'; o.className = 'bag-out'; o.placeholder = 'Still out'; o.style.cssText = st;
+  o.addEventListener('input', function(){ this.style.borderColor = parseInt(this.value) > 0 ? 'var(--red)' : 'var(--border)'; });
+  var rm = document.createElement('button'); rm.className = 'remove-btn'; rm.textContent = '✕'; rm.onclick = function(){ w.remove(); };
+  w.appendChild(n); w.appendChild(r); w.appendChild(o); w.appendChild(rm);
+  list.appendChild(w);
+  return w;
+}
+function syncBagRows(manual) {
+  var list = document.getElementById('bag-list'); if (!list) return 0;
+  var have = {}; list.querySelectorAll('.bag-name').forEach(function(i){ have[i.value.trim().toLowerCase()] = true; });
+  var added = 0;
+  getDrivers().forEach(function(d) {
+    var k = String(d.name || '').trim().toLowerCase();
+    if (k && !have[k]) { addBagRow(d.name.trim()); have[k] = true; added++; }
+  });
+  if (manual && !getDrivers().length) alert('No drivers entered yet. Add the drivers above first, or use "+ Add driver" here.');
+  return added;
+}
+function getBags() {
+  var out = [];
+  document.querySelectorAll('#bag-list .bag-row').forEach(function(w) {
+    var o = { driver: w.querySelector('.bag-name').value.trim(), returned: w.querySelector('.bag-returned').value.trim(), out: w.querySelector('.bag-out').value.trim() };
+    if (o.driver || o.returned || o.out) out.push(o);
+  });
+  return out;
+}
+function bagLines() {
+  var b = getBags(); if (!b.length) return [];
+  var lines = ['👜 BAGS — ' + b.map(function(x){ return x.driver + ': returned ' + (x.returned || 0) + ', still out ' + (x.out || 0); }).join(' | ')];
+  b.filter(function(x){ return parseInt(x.out) > 0; }).forEach(function(x){ lines.push('❌ BAGS NOT RETURNED — ' + x.driver + ': ' + x.out); });
+  return lines;
+}
+function validateBags() {
+  var added = syncBagRows(false);
+  var sec = document.getElementById('bags-section');
+  if (added) {
+    alert('⚠ Delivery bags: I\'ve added a row for each driver tonight. Enter how many bags each one returned and how many are still out (0 if none).');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+  }
+  var bad = getBags().filter(function(x){ return !x.driver || x.returned === '' || x.out === ''; });
+  if (bad.length) {
+    alert('⚠ Delivery bags: each driver needs a name, bags returned and bags still out (enter 0 if none).');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false;
+  }
+  return true;
+}
+
 function addDriver() {
   var list = document.getElementById('driver-list');
   var row = document.createElement('div');
@@ -3942,6 +4009,9 @@ function submitReportChecked() {
   // Validate packing spot checks & missing items — mandatory all sites
   if (!validatePacking()) return;
 
+  // Validate delivery bags — every driver who worked
+  if (!validateBags()) return;
+
   // Validate late-order causes — mandatory all sites
   if (!validateLateCauses()) return;
 
@@ -4033,6 +4103,8 @@ function submitReportChecked() {
     packChecks: packingApplies() ? getPackChecks() : [],
     missingItems: (!packingApplies() || document.getElementById('f-no-missing').checked) ? [] : getMissingItems(),
     packingLines: packingLines(),
+    bags: getBags(),
+    bagLines: bagLines(),
     submittedAt: new Date().toISOString()
   };
 
@@ -4117,7 +4189,7 @@ function submitReportChecked() {
       ckStock: getCkStockData(),
       drinksOrder: getDrinksOrderData(),
     drinksOrder: getDrinksOrderData(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return u ? [u].concat(l) : l; })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(bagLines()).concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return u ? [u].concat(l) : l; })(),
       fuelOverrides: getFuelOverrides(),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders,
@@ -4166,9 +4238,11 @@ function submitReportChecked() {
       stock_to_order: report.stock,
       wastage: report.wastage,
       table_deposits: getDeposits(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(bagLines()).concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
       fuel_overrides: fuelOverrideLines().join(' | '),
       fuel_override_count: getFuelOverrides().length,
+      delivery_bags: getBags().map(function(x){ return x.driver + ' returned ' + (x.returned || 0) + ' / out ' + (x.out || 0); }).join(' | '),
+      bags_outstanding: getBags().reduce(function(t, x){ return t + (parseInt(x.out) || 0); }, 0),
       packing_checks: !packingApplies() ? '' : getPackChecks().map(function(c){ return '#' + c.order + ' ' + c.packer + ' ' + packResultLabel(c.result) + (c.detail ? ' (' + c.detail + ')' : ''); }).join(' | '),
       spot_checks_done: packingApplies() ? getPackChecks().length : '',
       spot_checks_failed: !packingApplies() ? '' : getPackChecks().filter(function(c){ return c.result !== 'pass'; }).length,
@@ -4234,7 +4308,7 @@ function resetForm() {
   document.getElementById('nav-new-report').style.display = 'none';
   document.getElementById('login-overlay').classList.remove('hidden');
   clearLocationSelection();
-  ['driver-list','staff-list','late-list','discount-list','deposit-list','issue-list','petty-list','staff-error-list','refund-list','pack-check-list','missing-list'].forEach(id => {
+  ['driver-list','staff-list','late-list','discount-list','deposit-list','issue-list','petty-list','staff-error-list','refund-list','pack-check-list','missing-list','bag-list'].forEach(id => {
     document.getElementById(id).innerHTML = '';
   });
   var nmReset = document.getElementById('f-no-missing'); if (nmReset) { nmReset.checked = false; toggleNoMissing(nmReset); document.getElementById('missing-list').innerHTML = ''; }
@@ -4383,6 +4457,9 @@ function openReport(idx) {
     html += section('Petty Cash', [['Cash in', r.cashIn]]);
   }
 
+  if (r.bagLines?.length) {
+    html += `<div class="modal-section"><h4>Delivery Bags</h4>${r.bagLines.map(l => `<div class="modal-row"><span class="val" style="text-align:left;${l.indexOf('❌') === 0 ? 'color:var(--red);' : ''}">${l}</span></div>`).join('')}</div>`;
+  }
   if (r.packingLines?.length) {
     html += `<div class="modal-section"><h4>Packing</h4>${r.packingLines.map(l => `<div class="modal-row"><span class="val" style="text-align:left;${l.indexOf('❌') === 0 ? 'color:var(--red);' : ''}">${l}</span></div>`).join('')}</div>`;
   }
