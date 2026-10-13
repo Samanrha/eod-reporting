@@ -3206,6 +3206,29 @@ function addStaff() {
   list.appendChild(row);
 }
 
+// ── Staff hours (required at Dorchester) ──
+function validateStaffHours() {
+  var rows = Array.from(document.querySelectorAll('#staff-list .driver-row'));
+  var filled = rows.map(function(r) {
+    var g = function(c){ var el = r.querySelector(c); return el ? el.value.trim() : ''; };
+    return { el: r, name: g('.stf-name'), start: g('.stf-start'), end: g('.stf-end'), hours: g('.stf-hours') };
+  }).filter(function(x){ return x.name || x.start || x.end; });
+  var sec = document.getElementById('staff-list');
+  var flag = function(x){ x.el.querySelectorAll('input').forEach(function(i){ if (!i.value.trim()) { i.style.borderColor = 'var(--red)'; setTimeout(function(){ i.style.borderColor = ''; }, 4000); } }); };
+  if (!filled.length) {
+    alert('\u26a0 Dorchester: please record the hours for everyone who worked tonight (name, start and finish) before submitting.');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    rows.forEach(function(r){ flag({ el: r }); }); return false;
+  }
+  var bad = filled.filter(function(x){ return !x.name || !x.start || !x.end || !x.hours || x.start.indexOf(':') < 0 || x.end.indexOf(':') < 0; });
+  if (bad.length) {
+    alert('\u26a0 Dorchester: each staff member needs a name, a start time and a finish time (e.g. 5pm and 10:30pm), so their hours are worked out.');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    bad.forEach(flag); return false;
+  }
+  return true;
+}
+
 // ── Late-order cause (required, all sites) ──
 var LATE_CAUSES = [['','Cause of lateness…'],['kitchen','Kitchen slow'],['driver','Waiting for a driver'],['distance','Long distance'],['batched','Batched with another drop'],['address','Wrong address / hard to find'],['platform','App / platform delay'],['other','Other (explain in reason)']];
 function makeLateCauseSelect() {
@@ -4008,6 +4031,9 @@ function submitReportChecked() {
 
   // Validate packing spot checks & missing items — mandatory all sites
   if (!validatePacking()) return;
+
+  // Validate staff hours — Dorchester only
+  if (currentSite === 'dorchester' && !validateStaffHours()) return;
 
   // Validate delivery bags — every driver who worked
   if (!validateBags()) return;
