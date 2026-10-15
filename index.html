@@ -493,6 +493,12 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
           <button class="add-btn" onclick="syncBagRows(true)">↻ Load tonight's drivers</button>
           <button class="add-btn" onclick="addBagRow('')">+ Add driver</button>
         </div>
+        <div id="bag-count-box" style="display:none;margin-top:14px;padding:12px;border:1px solid var(--gold);border-radius:6px;">
+          <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:4px;">Weekly bag count (Sunday) <span style="color:var(--red);font-size:12px;font-weight:400;">* Required</span></div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5;">Count every delivery bag in the building right now, including empty ones in storage. Don't count bags still out with drivers, they are added from the table above. <span id="bag-count-total-info"></span></div>
+          <input type="number" id="bag-count-in-building" min="0" inputmode="numeric" placeholder="Bags in the building" oninput="updateBagCountBox()" style="width:100%;background:var(--green-mid);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--text);font-family:var(--sans);font-size:14px;outline:none;-webkit-appearance:none;">
+          <div id="bag-count-result" style="font-size:12px;margin-top:6px;"></div>
+        </div>
       </div>
 
       <!-- STAFF -->
@@ -3023,7 +3029,7 @@ function addBagRow(name) {
   var n = document.createElement('input'); n.type = 'text'; n.className = 'bag-name'; n.placeholder = 'Driver'; n.value = name || ''; n.style.cssText = st;
   var r = document.createElement('input'); r.type = 'number'; r.min = '0'; r.inputMode = 'numeric'; r.className = 'bag-returned'; r.placeholder = 'Returned'; r.style.cssText = st;
   var o = document.createElement('input'); o.type = 'number'; o.min = '0'; o.inputMode = 'numeric'; o.className = 'bag-out'; o.placeholder = 'Still out'; o.style.cssText = st;
-  o.addEventListener('input', function(){ this.style.borderColor = parseInt(this.value) > 0 ? 'var(--red)' : 'var(--border)'; });
+  o.addEventListener('input', function(){ this.style.borderColor = parseInt(this.value) > 0 ? 'var(--red)' : 'var(--border)'; updateBagCountBox(); });
   var rm = document.createElement('button'); rm.className = 'remove-btn'; rm.textContent = '✕'; rm.onclick = function(){ w.remove(); };
   w.appendChild(n); w.appendChild(r); w.appendChild(o); w.appendChild(rm);
   list.appendChild(w);
@@ -3049,10 +3055,66 @@ function getBags() {
   return out;
 }
 function bagLines() {
-  var b = getBags(); if (!b.length) return [];
-  var lines = ['👜 BAGS — ' + b.map(function(x){ return x.driver + ': returned ' + (x.returned || 0) + ', still out ' + (x.out || 0); }).join(' | ')];
-  b.filter(function(x){ return parseInt(x.out) > 0; }).forEach(function(x){ lines.push('❌ BAGS NOT RETURNED — ' + x.driver + ': ' + x.out); });
-  return lines;
+  var b = getBags(); var lines = [];
+  if (b.length) {
+    lines.push('👜 BAGS — ' + b.map(function(x){ return x.driver + ': returned ' + (x.returned || 0) + ', still out ' + (x.out || 0); }).join(' | '));
+    b.filter(function(x){ return parseInt(x.out) > 0; }).forEach(function(x){ lines.push('❌ BAGS NOT RETURNED — ' + x.driver + ': ' + x.out); });
+  }
+  return lines.concat(bagCountLines());
+}
+
+// ── Weekly bag count (Sundays, Bridport + Dorchester) ──
+// Total bags each site owns. Bridport total to be added when known.
+var BAG_TOTALS = { dorchester: 14 };
+var BAG_COUNT_SITES = ['bridport', 'dorchester'];
+function bagCountDue() {
+  if (BAG_COUNT_SITES.indexOf(currentSite) < 0) return false;
+  var el = document.getElementById('f-date');
+  var d = el && el.value ? new Date(el.value) : new Date();
+  return d.getDay() === 0;
+}
+function getBagCount() {
+  var inp = document.getElementById('bag-count-in-building');
+  var v = inp ? inp.value.trim() : '';
+  var out = getBags().reduce(function(t, x){ return t + (parseInt(x.out) || 0); }, 0);
+  var total = BAG_TOTALS[currentSite] || null;
+  var inB = v === '' ? null : (parseInt(v) || 0);
+  var acc = inB === null ? null : inB + out;
+  return { raw: v, inBuilding: inB, out: out, total: total, accounted: acc, missing: (total && acc !== null) ? total - acc : null };
+}
+function updateBagCountBox() {
+  var box = document.getElementById('bag-count-box'); if (!box) return;
+  var due = bagCountDue();
+  box.style.display = due ? '' : 'none';
+  if (!due) return;
+  var c = getBagCount();
+  var info = document.getElementById('bag-count-total-info');
+  if (info) info.textContent = c.total ? 'This site should have ' + c.total + ' bags in total.' : '';
+  var res = document.getElementById('bag-count-result'); if (!res) return;
+  if (c.inBuilding === null) { res.textContent = ''; return; }
+  var txt = c.inBuilding + ' in the building + ' + c.out + ' out with drivers = ' + c.accounted + (c.total ? ' of ' + c.total : '');
+  if (c.total && c.missing > 0) { res.style.color = 'var(--red)'; txt += ' — ' + c.missing + ' missing'; }
+  else if (c.total && c.missing < 0) { res.style.color = 'var(--gold)'; txt += ' — more than expected, tell management'; }
+  else { res.style.color = 'var(--muted)'; }
+  res.textContent = txt;
+}
+function bagCountLines() {
+  if (!bagCountDue()) return [];
+  var c = getBagCount(); if (c.inBuilding === null) return [];
+  var l = ['📦 WEEKLY BAG COUNT — ' + c.inBuilding + ' in building + ' + c.out + ' out with drivers = ' + c.accounted + (c.total ? ' of ' + c.total : ' (site total not set)')];
+  if (c.total && c.missing > 0) l.push('❌ BAGS MISSING — ' + c.missing + ' of ' + c.total + ' not accounted for');
+  if (c.total && c.missing < 0) l.push('⚠ BAG COUNT — ' + (-c.missing) + ' more than the site total of ' + c.total);
+  return l;
+}
+function validateBagCount() {
+  if (!bagCountDue()) return true;
+  if (getBagCount().inBuilding === null) {
+    alert('⚠ Weekly bag count: it\'s Sunday, so count every delivery bag in the building and enter the number in the Delivery Bags section.');
+    var el = document.getElementById('bag-count-in-building');
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
+    return false;
+  }
+  return true;
 }
 function validateBags() {
   var added = syncBagRows(false);
@@ -3446,6 +3508,7 @@ function packChecksRequired() {
   return (day === 5 || day === 6) ? 3 : 2;   // Fri & Sat = 3, other nights = 2
 }
 function updatePackReq() {
+  updateBagCountBox();
   var wrap = document.getElementById('packing-sections');
   if (wrap) wrap.style.display = packingApplies() ? '' : 'none';
   if (!packingApplies()) return;
@@ -4037,6 +4100,7 @@ function submitReportChecked() {
 
   // Validate delivery bags — every driver who worked
   if (!validateBags()) return;
+  if (!validateBagCount()) return;
 
   // Validate late-order causes — mandatory all sites
   if (!validateLateCauses()) return;
@@ -4340,7 +4404,7 @@ function resetForm() {
   var nmReset = document.getElementById('f-no-missing'); if (nmReset) { nmReset.checked = false; toggleNoMissing(nmReset); document.getElementById('missing-list').innerHTML = ''; }
   ['f-cash','f-float','f-ta-sales','f-ta-orders','f-cook-time','f-cash-in','f-stock',
    'f-wastage','f-covers','f-manager-first','f-manager-surname','f-given-to',
-   'f-change-detail','f-ps-discrepancy'].forEach(id => {
+   'f-change-detail','f-ps-discrepancy','bag-count-in-building'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
