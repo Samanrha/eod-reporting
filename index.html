@@ -2345,7 +2345,10 @@ async function analyseReportImage() {
   "preoday_amount": "The expected amount next to Preoday row, as plain number string, 0 if not present",
   "orderlord_cash": "In the Turnover by Payment Type table, find the row labelled exactly 'Cash' — return the value in the EXPECTED column (the left number column) for that row only, as a plain number string. The Expected column is the first number column. Do not use the Net Turnover column (right side, shown in red). If zero or blank return 0",
   "orderlord_bar_card": "In the Turnover by Payment Type table, find the row labelled 'Bar card machine' or 'Bar card' — return the value in the EXPECTED column (the left number column) for that row only, as a plain number string. The Expected column is the first number column. Do not confuse with Je card, Paymentsense, Preoday or Deliveroo rows. If not present return 0",
-  "has_open_orders": false}`
+  "payment_rows": "An array listing EVERY row of the Turnover by Payment Type table, top to bottom, exactly as printed: [{\"label\": \"row name exactly as printed\", \"expected\": \"the number in the EXPECTED column (first number column) of THAT SAME row, plain number string, 0 if blank or zero\"}]. Read each number from the same horizontal line as its label — never take a number from the row above or below. If the table has no Paymentsense row, do not invent one.",
+  "has_open_orders": false}
+
+IMPORTANT: if the Paymentsense online row shows 0, 0.00 or is blank, paymentsense_online_amount MUST be "0". Never use the value from a neighbouring row (Preoday, Je card, Cash, Bar card, Deliveroo, Uber) for Paymentsense.`
             }
           ]
         }]
@@ -2368,6 +2371,7 @@ async function analyseReportImage() {
     if (!parsed) { try { parsed = JSON.parse(text.replace(/```json|```/g,'').trim()); } catch(e) {} }
     if (!parsed) throw new Error('Could not parse AI response as JSON');
 
+    applyPaymentRows(parsed);
     extractedReportData = parsed;
     populateReportData(parsed, selectedDate);
     status.textContent = '✓ Data extracted successfully';
@@ -2381,6 +2385,27 @@ async function analyseReportImage() {
     btn.disabled = false;
     document.getElementById('report-data-section').style.display = 'block';
   }
+}
+
+// Take payment-type amounts from the row-by-row list the AI returns, so a
+// £0 / blank Paymentsense row can never pick up the number from the next line.
+function applyPaymentRows(d) {
+  var rows = Array.isArray(d && d.payment_rows) ? d.payment_rows : null;
+  if (!rows || !rows.length) return;
+  function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[£,\s]/g, '')); return isNaN(n) ? 0 : n; }
+  function pick(test) {
+    for (var i = 0; i < rows.length; i++) {
+      var lbl = String(rows[i] && rows[i].label || '').trim().toLowerCase();
+      if (test(lbl)) return String(num(rows[i].expected));
+    }
+    return '0';
+  }
+  d.paymentsense_online_amount = pick(function(l){ return l.indexOf('paymentsense') !== -1; });
+  d.je_card_amount            = pick(function(l){ return /^je\s*card/.test(l); });
+  d.preoday_amount            = pick(function(l){ return l.indexOf('preoday') !== -1; });
+  d.check_payment_amount      = pick(function(l){ return /check\s*payment/.test(l); });
+  d.orderlord_bar_card        = pick(function(l){ return /bar\s*card/.test(l); });
+  d.orderlord_cash            = pick(function(l){ return l.replace(/[^a-z]/g, '') === 'cash'; });
 }
 
 function populateReportData(d, selectedDate) {
@@ -2771,13 +2796,14 @@ function selectSite(site) {
   // Populate chef dropdown for this site
   // Fallback chefs if Sheet not available
   var chefFallback = {
-   bridport: ['Ali','Saiful','Shahed','Nayeb','Rahim','Lokman'],
+   bridport: ['Ali','Saiful','Shahed','Nayeb','Rahim','Lokman','Oni'],
     dorchester: ['Rajat','Koies','Raju','Samir'],
-    rivaaz: ['Sawar','Sahan','Misbah','Rukon','Najmul','Mujamul','Gulam']
+    rivaaz: ['Sawar','Sahan','Misbah','Rukon','Najmul','Mujamul','Gulam','Mahfouz']
   };
   // Chefs who must always be listed even if missing from the Staff tab
   var extraChefs = {
-    rivaaz: ['Gulam']
+    bridport: ['Oni'],
+    rivaaz: ['Gulam','Mahfouz']
   };
   var chefContainer = document.getElementById('f-chef-off');
   chefContainer.innerHTML = '';
