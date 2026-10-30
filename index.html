@@ -1250,7 +1250,7 @@ function checkDuplicateDate() {
   const date = document.getElementById('f-date').value;
   if (!date || !currentSite) return;
   const reports = getReports();
-  const exists = reports.find(r => r.site === currentSite && r.date === date);
+  const exists = reports.find(r => r.site === currentSite && r.date === date && !r.syncFailed);
   const errEl = document.getElementById('date-error');
   if (exists) {
     errEl.textContent = `⚠ An EOD report for ${currentSite} already exists for this date (submitted by ${exists.manager || 'unknown'}). Please check you are submitting the correct date.`;
@@ -4369,19 +4369,42 @@ function submitReportChecked() {
     };
     };
 
-    fetch(SHEETS_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload)
-    }).then(function(r) { return r.json(); })
-    .then(function(result) {
+  // Only show "Report submitted" once the sheet confirms it saved the report.
+  var submitBtn = document.querySelector('#form-body .submit-btn') || document.querySelector('.submit-btn[onclick="submitReport()"]');
+  function eodSent() {
+    document.getElementById('form-content').style.display = 'none';
+    document.getElementById('success-screen').classList.add('show');
+  }
+  function eodNotSent(why) {
+    // Keep the local copy as a backup, but don't let it trigger the duplicate-date block on retry
+    try {
+      var rs = getReports();
+      if (rs.length && rs[0].submittedAt === report.submittedAt) { rs[0].syncFailed = true; localStorage.setItem('sundorbon_eod', JSON.stringify(rs)); }
+    } catch (e) {}
+    var de = document.getElementById('date-error'); if (de) { de.style.display = 'none'; de.textContent = ''; }
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Report'; }
+    alert('\u26a0 Your EOD has NOT been sent.\n\nNothing has been lost. Check the internet connection and press Submit Report again.\n\nIf it still fails, take a screenshot of this message and send it to Sam.\n\n(' + why + ')');
+  }
+  if (!SHEETS_WEBHOOK_URL) { eodSent(); return; }
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending\u2026'; }
+  fetch(SHEETS_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(payload)
+  }).then(function(r) { return r.json(); })
+  .then(function(result) {
+    if (result && result.success === true) {
       console.log('Sheets sync ok:', result);
-    }).catch(function(err) {
-      console.warn('Sheets sync failed (report saved locally):', err);
-    });
-
-  document.getElementById('form-content').style.display = 'none';
-  document.getElementById('success-screen').classList.add('show');
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Report'; }
+      eodSent();
+    } else {
+      console.warn('Sheets did not save the report:', result);
+      eodNotSent('Sheet reply: ' + (result && (result.error || JSON.stringify(result)) || 'no reply'));
+    }
+  }).catch(function(err) {
+    console.warn('Sheets sync failed (report saved locally):', err);
+    eodNotSent('Connection error: ' + (err && err.message ? err.message : err));
+  });
 }
 
 function resetForm() {
