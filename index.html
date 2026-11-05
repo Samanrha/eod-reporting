@@ -389,7 +389,9 @@ body{background:var(--green);color:var(--text);font-family:var(--sans);font-size
             <div><span style="color:var(--muted);">Match?</span><br><span id="ps-match-status" style="font-weight:600;">—</span></div>
             <div><span style="color:var(--muted);">PS Date</span><br><span id="ps-date-extracted" style="font-weight:600;color:var(--text);">—</span></div>
           </div>
+          <div id="ps-tx-breakdown" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;line-height:1.6;"></div>
         </div>
+        <div id="ps-page-warning" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none;font-weight:700;"></div>
         <div id="ps-discrepancy-field" style="display:none;" class="field">
           <label style="color:var(--amber);">⚠ Amounts differ — please explain the discrepancy</label>
           <textarea id="f-ps-discrepancy" placeholder="Explain why Paymentsense total differs from Orderlord..." rows="3"></textarea>
@@ -2561,12 +2563,16 @@ async function analysePsImage() {
           { type: 'image', source: { type: 'base64', media_type: window._psMediaType || 'image/jpeg', data: psImageBase64 || window._psImageBase64 || '' } },
           {
               type: 'text',
-              text: `You are reading a Paymentsense Transaction History screenshot. Extract ALL transactions visible and return ONLY valid JSON:
+              text: `You are reading a screenshot of Paymentsense transactions. Return ONLY valid JSON, no markdown:
 {
-  "transaction_date": "DD/MM/YYYY of the transactions",
-  "transactions": [{"amount": "number as string", "card_name": "string", "auth_code": "string"}],
-  "total": "sum of all transaction amounts as string"
-}`
+  "page_type": "gateway" if this is the Paymentsense online gateway Transaction History (mms.paymentsensegateway.com, with columns like Cross Reference, Card Name, Order ID, Date/Time, Amount, Message), "card_machine" if it is the card machine / myaccount.paymentsense.com transactions list, otherwise "other",
+  "transaction_date": "DD/MM/YYYY of the transactions shown",
+  "transactions": [{"date": "DD/MM/YYYY", "time": "HH:MM", "amount": "number as string", "card_name": "string", "type": "SALE, REFUND, PREAUTH, COLLECTION, VOID or other", "status": "success, declined, failed or other", "message": "the Message column text exactly as shown"}]
+}
+Rules:
+- List every row of the transaction list exactly once, top to bottom. Do NOT add the Transaction Details panel below the list as an extra row.
+- status is "success" only when the row shows an AuthCode or SUCCESS. Declined, card declined, failed, 3D Secure failed, rejected, cancelled or no auth code = "declined" or "failed".
+- Do not add anything up and do not return a total.`
             }
           ]
         }]
@@ -2587,6 +2593,7 @@ async function analysePsImage() {
     }
     if (!parsed) throw new Error('Could not parse PS response');
 
+    tallyPsTransactions(parsed, selectedDate);
     extractedPsData = parsed;
     populatePsData(parsed, selectedDate, psOrderlordAmt);
     status.textContent = '✓ Paymentsense data extracted';
@@ -2600,9 +2607,59 @@ async function analysePsImage() {
   }
 }
 
+
+// Work out the Paymentsense online total from the itemised rows instead of trusting the AI's sum.
+// Only successful sales on the EOD date count; refunds are taken off; declined/failed attempts,
+// other dates and duplicate rows are listed but not counted.
+function tallyPsTransactions(d, selectedDate) {
+  var want = '';
+  if (selectedDate) { var p = String(selectedDate).split('-'); if (p.length === 3) want = p[2] + '/' + p[1] + '/' + p[0]; }
+  var rows = Array.isArray(d.transactions) ? d.transactions : [];
+  var seen = {}, counted = [], excluded = [], total = 0;
+  rows.forEach(function(t) {
+    var amt = parseFloat(String(t.amount == null ? '' : t.amount).replace(/[^0-9.\-]/g, '')) || 0;
+    var date = String(t.date || '').replace(/[.\-]/g, '/');
+    var type = String(t.type || 'SALE').toUpperCase();
+    var status = String(t.status || '').toLowerCase();
+    var msg = String(t.message || '');
+    var key = [date, t.time || '', amt.toFixed(2), String(t.card_name || '').toLowerCase()].join('|');
+    var row = { date: date, time: t.time || '', amount: amt, card: t.card_name || '', type: type, status: status, message: msg };
+    if (seen[key]) { row.why = 'duplicate row'; excluded.push(row); return; }
+    seen[key] = true;
+    var ok = status === 'success' || (!status && /auth\s*code/i.test(msg));
+    if (!ok) { row.why = status ? status : 'no auth code'; excluded.push(row); return; }
+    if (want && date && date !== want) { row.why = 'different date (' + date + ')'; excluded.push(row); return; }
+    if (type.indexOf('REFUND') !== -1) { row.amount = -Math.abs(amt); counted.push(row); total -= Math.abs(amt); return; }
+    if (type !== 'SALE' && type.indexOf('COLLECT') === -1) { row.why = type.toLowerCase(); excluded.push(row); return; }
+    counted.push(row); total += amt;
+  });
+  d.ai_total = d.total;
+  d.total = (Math.round(total * 100) / 100).toFixed(2);
+  d.counted = counted; d.excluded = excluded;
+  return d;
+}
+function renderPsBreakdown(d) {
+  var box = document.getElementById('ps-tx-breakdown'); if (!box) return;
+  var warn = document.getElementById('ps-page-warning');
+  if (warn) {
+    if (d.page_type && d.page_type !== 'gateway') {
+      warn.textContent = '⚠ This looks like the ' + (d.page_type === 'card_machine' ? 'card machine' : 'wrong') + ' page. Please upload the Paymentsense ONLINE Transaction History (mms.paymentsensegateway.com) for this date.';
+      warn.style.display = 'block';
+    } else { warn.style.display = 'none'; }
+  }
+  var c = d.counted || [], x = d.excluded || [];
+  if (!c.length && !x.length) { box.style.display = 'none'; return; }
+  var h = '';
+  if (c.length) h += '<div style="color:var(--muted);margin-bottom:4px;">Counted (' + c.length + ')</div>' + c.map(function(r){ return '<div>' + escHtml(r.time) + ' · ' + escHtml(r.card || '—') + ' · <b>£' + r.amount.toFixed(2) + '</b>' + (r.amount < 0 ? ' (refund)' : '') + '</div>'; }).join('');
+  if (x.length) h += '<div style="color:var(--amber);margin:8px 0 4px;">Not counted (' + x.length + ')</div>' + x.map(function(r){ return '<div style="color:var(--muted);">' + escHtml(r.time) + ' · ' + escHtml(r.card || '—') + ' · £' + r.amount.toFixed(2) + ' — ' + escHtml(r.why) + '</div>'; }).join('');
+  box.innerHTML = h; box.style.display = 'block';
+}
+
 function populatePsData(d, selectedDate, psOrderlordAmt) {
   document.getElementById('ps-data-section').style.display = 'block';
 
+  if (d.transactions && d.counted === undefined) tallyPsTransactions(d, selectedDate);
+  renderPsBreakdown(d);
   const psTotal = parseFloat(d.total || 0);
   document.getElementById('ps-total-extracted').textContent = '£' + psTotal.toFixed(2);
   document.getElementById('ps-date-extracted').textContent = d.transaction_date || '—';
@@ -2798,12 +2855,12 @@ function selectSite(site) {
   var chefFallback = {
    bridport: ['Ali','Saiful','Shahed','Nayeb','Rahim','Lokman','Oni'],
     dorchester: ['Rajat','Koies','Raju','Samir'],
-    rivaaz: ['Sawar','Sahan','Misbah','Rukon','Najmul','Mujamul','Gulam','Mahfouz']
+    rivaaz: ['Sawar','Sahan','Misbah','Rukon','Najmul','Mujamul','Gulam','Mahfouz','Shumon']
   };
   // Chefs who must always be listed even if missing from the Staff tab
   var extraChefs = {
     bridport: ['Oni'],
-    rivaaz: ['Gulam','Mahfouz']
+    rivaaz: ['Gulam','Mahfouz','Shumon']
   };
   var chefContainer = document.getElementById('f-chef-off');
   chefContainer.innerHTML = '';
@@ -3936,6 +3993,88 @@ function getDeposits() {
 }
 
 // -- SUBMIT --------------------------------------------------------
+
+// -- DORCHESTER CASH CHECK -----------------------------------------
+// Dorchester is takeaway only, so the bag should be Orderlord cash, plus any cash in,
+// less driver fuel, driver wages and petty cash paid out of the till.
+// If what was entered is more than £5 up or down, show a red pop-up with the figure
+// it should be and ask them to recount; if they keep their figure they must give a reason.
+var CASH_CHECK_TOLERANCE = 5;
+window._cashCheck = null;
+function firstMoney(str) { var m = String(str || '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/); return m ? parseFloat(m[0]) : 0; }
+function dorchExpectedCash() {
+  if (!extractedReportData || extractedReportData.orderlord_cash === undefined || extractedReportData.orderlord_cash === '') return null;
+  var ol = parseFloat(extractedReportData.orderlord_cash) || 0;
+  var fuel = 0, wage = 0, petty = 0;
+  getDrivers().forEach(function(d) { fuel += parseCurrency(String(d.fuel || '0')); wage += parseCurrency(String(d.wage || '0')); });
+  getPettyItems().forEach(function(p) { petty += parseCurrency(String(p.amount || '0')); });
+  var cashInEl = document.getElementById('f-cash-in');
+  var cashIn = cashInEl ? firstMoney(cashInEl.value) : 0;
+  var r2 = function(n) { return Math.round(n * 100) / 100; };
+  return { ol: r2(ol), fuel: r2(fuel), wage: r2(wage), petty: r2(petty), cashIn: r2(cashIn), expected: r2(ol + cashIn - fuel - wage - petty) };
+}
+function cashCheckDialog(html, yesLabel, noLabel, withInput, placeholder) {
+  return new Promise(function(resolve) {
+    var box = document.getElementById('yn-box'), msgEl = document.getElementById('yn-msg'), inp = document.getElementById('yn-input');
+    var oldBorder = box.style.border;
+    box.style.border = '2px solid var(--red)';
+    ynLabels(yesLabel, noLabel);
+    msgEl.innerHTML = html;
+    document.getElementById('yn-input-wrap').style.display = withInput ? 'block' : 'none';
+    if (withInput) { inp.value = ''; inp.placeholder = placeholder || ''; setTimeout(function(){ inp.focus(); }, 50); }
+    document.getElementById('yn-overlay').classList.add('open');
+    window._ynResolve = function(val) {
+      if (withInput && val && inp.value.trim().length < 4) {
+        msgEl.innerHTML = html + '<div style="color:var(--red);margin-top:8px;font-weight:700;">Please type the reason before saving.</div>';
+        inp.focus();
+        return; // keep it open
+      }
+      var text = withInput ? inp.value.trim() : '';
+      document.getElementById('yn-overlay').classList.remove('open');
+      box.style.border = oldBorder; inp.placeholder = '';
+      resolve(withInput ? (val ? text : null) : val);
+    };
+  });
+}
+async function checkDorchCash() {
+  window._cashCheck = null;
+  if (currentSite !== 'dorchester') return true;
+  var c = dorchExpectedCash();
+  if (!c) return true; // Orderlord not analysed yet — the normal checks will ask for it
+  var cashEl = document.getElementById('f-cash');
+  if (!cashEl || cashEl.value === '') return true;
+  var entered = parseCurrency(cashEl.value);
+  var diff = Math.round((entered - c.expected) * 100) / 100;
+  if (Math.abs(diff) <= CASH_CHECK_TOLERANCE) return true;
+  var word = diff < 0 ? 'SHORT' : 'OVER';
+  var money = function(n) { return (n < 0 ? '-£' : '£') + Math.abs(n).toFixed(2); };
+  var lines = '<div style="font-size:13px;line-height:1.7;margin:10px 0;">Orderlord cash: <b>' + money(c.ol) + '</b>'
+    + (c.cashIn ? '<br>+ cash in: <b>' + money(c.cashIn) + '</b>' : '')
+    + (c.fuel ? '<br>− driver fuel: <b>' + money(c.fuel) + '</b>' : '')
+    + (c.wage ? '<br>− driver wages: <b>' + money(c.wage) + '</b>' : '')
+    + (c.petty ? '<br>− petty cash: <b>' + money(c.petty) + '</b>' : '')
+    + '<br>= cash takings should be <b>' + money(c.expected) + '</b></div>';
+  var head = '<div style="background:rgba(217,64,64,.15);border:1.5px solid var(--red);border-radius:6px;padding:12px 14px;color:var(--red);font-weight:700;font-size:15px;">⚠ Cash takings are ' + money(Math.abs(diff)).replace('-', '') + ' ' + word + '</div>'
+    + '<div style="margin-top:10px;">You entered <b>' + money(entered) + '</b>. The cash takings should be <b style="color:var(--red);font-size:16px;">' + money(c.expected) + '</b>.</div>' + lines;
+  cashEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  var recount = await cashCheckDialog(head + '<div style="font-weight:700;">Do you want to recount the cash?</div>', 'Yes, recount', 'No');
+  if (recount) {
+    cashEl.style.borderColor = 'var(--red)'; cashEl.focus(); cashEl.select && cashEl.select();
+    setTimeout(function(){ cashEl.style.borderColor = ''; }, 4000);
+    return false;
+  }
+  var reason = await cashCheckDialog(head + '<div style="font-weight:700;">Why is the cash ' + word.toLowerCase() + '? Type the reason. This will be seen by management.</div>', 'Save reason', 'Recount instead', true, 'e.g. £20 paid to driver not written on EOD, left in till from last night...');
+  if (reason === null) { cashEl.focus(); return false; }
+  window._cashCheck = { entered: entered, expected: c.expected, diff: diff, word: word, reason: reason, parts: c };
+  return true;
+}
+function cashCheckLines() {
+  var c = window._cashCheck; if (!c) return [];
+  var p = c.parts, m = function(n){ return '£' + Math.abs(n).toFixed(2); };
+  var calc = 'Orderlord cash ' + m(p.ol) + (p.cashIn ? ' + cash in ' + m(p.cashIn) : '') + (p.fuel ? ' − fuel ' + m(p.fuel) : '') + (p.wage ? ' − wages ' + m(p.wage) : '') + (p.petty ? ' − petty ' + m(p.petty) : '');
+  return ['⚠ CASH ' + c.word + ' ' + m(c.diff) + ' — EOD ' + (c.entered < 0 ? '-' : '') + m(c.entered) + ', should be ' + (c.expected < 0 ? '-' : '') + m(c.expected) + ' (' + calc + '). Reason: ' + c.reason];
+}
+
 async function submitReport() {
   var rows = document.querySelectorAll('#driver-list .ai-driver-row');
   for (var ri = 0; ri < rows.length; ri++) {
@@ -3948,6 +4087,8 @@ async function submitReport() {
       if (!ok) return; // change was cancelled and the app's figure put back — let them review before submitting
     }
   }
+  var cashOk = await checkDorchCash();
+  if (!cashOk) return; // they chose to recount — let them fix the cash figure first
   return submitReportChecked();
 }
 function submitReportChecked() {
@@ -4214,7 +4355,7 @@ function submitReportChecked() {
     stock: document.getElementById('f-stock').value.trim(),
     wastage: document.getElementById('f-wastage').value.trim(),
     deposits: getDeposits(),
-    issues: fuelOverrideLines().concat(getListValues('issue-list', 'textarea')),
+    issues: cashCheckLines().concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')),
     fuelOverrides: getFuelOverrides(),
     packChecks: packingApplies() ? getPackChecks() : [],
     missingItems: (!packingApplies() || document.getElementById('f-no-missing').checked) ? [] : getMissingItems(),
@@ -4305,7 +4446,7 @@ function submitReportChecked() {
       ckStock: getCkStockData(),
       drinksOrder: getDrinksOrderData(),
     drinksOrder: getDrinksOrderData(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(bagLines()).concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return u ? [u].concat(l) : l; })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = cashCheckLines().concat(packingLines()).concat(bagLines()).concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return u ? [u].concat(l) : l; })(),
       fuelOverrides: getFuelOverrides(),
       comments: document.getElementById('f-comments') ? document.getElementById('f-comments').value.trim() : '',
       check_payment_orders: cpOrders,
@@ -4354,7 +4495,7 @@ function submitReportChecked() {
       stock_to_order: report.stock,
       wastage: report.wastage,
       table_deposits: getDeposits(),
-      issues: (function(){ var u = getUrgentStockIssue(); var l = packingLines().concat(bagLines()).concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
+      issues: (function(){ var u = getUrgentStockIssue(); var l = cashCheckLines().concat(packingLines()).concat(bagLines()).concat(fuelOverrideLines()).concat(getListValues('issue-list', 'textarea')); return (u ? [u].concat(l) : l).join(' | '); })(),
       fuel_overrides: fuelOverrideLines().join(' | '),
       fuel_override_count: getFuelOverrides().length,
       delivery_bags: getBags().map(function(x){ return x.driver + ' returned ' + (x.returned || 0) + ' / out ' + (x.out || 0); }).join(' | '),
