@@ -1716,13 +1716,48 @@ function setFloatForSite(site) {
 }
 
 // -- IMAGE UPLOAD HANDLERS ------------------------------------------
+// Shrink screenshots before they go to the AI. The AI scales images down to
+// ~1568px on the long edge anyway, so accuracy stays the same — but the upload
+// is ~10x smaller, so it still gets through on slow restaurant wifi.
+// Falls back to the original file if anything goes wrong.
+function readImageForAI(file, cb) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var original = e.target.result;
+    var useOriginal = function() { cb(original, file.type || 'image/jpeg'); };
+    var img = new Image();
+    img.onload = function() {
+      try {
+        var MAX = 1568;
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) return useOriginal();
+        var scale = Math.min(1, MAX / Math.max(w, h));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        var shrunk = canvas.toDataURL('image/jpeg', 0.88);
+        if (!shrunk || shrunk.length >= original.length) return useOriginal();
+        cb(shrunk, 'image/jpeg');
+      } catch (err) {
+        console.warn('Image shrink failed, sending original:', err);
+        useOriginal();
+      }
+    };
+    img.onerror = useOriginal;
+    img.src = original;
+  };
+  reader.readAsDataURL(file);
+}
+
 function handleReportImage(input) {
   const file = input.files[0];
   if (!file) return;
-  window._reportMediaType = file.type || 'image/jpeg';
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const dataUrl = e.target.result;
+  readImageForAI(file, function(dataUrl, mediaType) {
+    window._reportMediaType = mediaType;
     const parts = dataUrl.split(',');
     reportImageBase64 = parts[1];
     window._reportImageBase64 = parts[1];
@@ -1730,8 +1765,7 @@ function handleReportImage(input) {
     document.getElementById('report-img-preview').style.display = 'block';
     document.getElementById('report-upload-placeholder').style.display = 'none';
     document.getElementById('report-analyse-btn-wrap').style.display = 'block';
-  };
-  reader.readAsDataURL(file);
+  });
 }
 
 function handleDeliveryImages(input) {
@@ -1742,13 +1776,12 @@ function handleDeliveryImages(input) {
   var total = files.length;
   var loaded = 0;
   files.forEach(function(file) {
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var b64 = e.target.result.split(',')[1];
+    readImageForAI(file, function(dataUrl, mediaType) {
+      var b64 = dataUrl.split(',')[1];
       // ignore the exact same screenshot being added twice
       var k = imgKey(b64);
       var dup = window._deliveryImages.some(function(im) { return imgKey(im.base64) === k; });
-      if (!dup) window._deliveryImages.push({ base64: b64, mediaType: file.type || 'image/jpeg' });
+      if (!dup) window._deliveryImages.push({ base64: b64, mediaType: mediaType });
       loaded++;
       if (loaded === total) {
         renderDeliveryThumbs();
@@ -1763,8 +1796,7 @@ function handleDeliveryImages(input) {
           analyseDeliveryImage();
         }
       }
-    };
-    reader.readAsDataURL(file);
+    });
   });
 }
 function renderDeliveryThumbs() {
@@ -1804,18 +1836,16 @@ function renderDeliveryThumbs() {
 function handleDeliveryImage(input) {
   var file = input.files[0];
   if (!file) return;
-  window._deliveryMediaType = file.type || 'image/jpeg';
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    window._deliveryImageBase64 = e.target.result.split(',')[1];
+  readImageForAI(file, function(dataUrl, mediaType) {
+    window._deliveryMediaType = mediaType;
+    window._deliveryImageBase64 = dataUrl.split(',')[1];
     var prev = document.getElementById('delivery-img-preview');
     var placeholder = document.getElementById('delivery-upload-placeholder');
     var btnWrap = document.getElementById('delivery-analyse-btn-wrap');
-    if (prev) { prev.src = e.target.result; prev.style.display = 'block'; }
+    if (prev) { prev.src = dataUrl; prev.style.display = 'block'; }
     if (placeholder) placeholder.style.display = 'none';
     if (btnWrap) btnWrap.style.display = 'block';
-  };
-  reader.readAsDataURL(file);
+  });
 }
 
 function updateDeliveryThumbs() {
@@ -2056,18 +2086,16 @@ function handleLateImages(input) {
 
   var loaded = 0;
   files.forEach(function(file) {
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var dataUrl = e.target.result;
+    readImageForAI(file, function(dataUrl, mediaType) {
       var parts = dataUrl.split(',');
-      window._lateImages.push({ base64: parts[1], mediaType: file.type || 'image/jpeg' });
+      window._lateImages.push({ base64: parts[1], mediaType: mediaType });
 
       // Add thumbnail — store base64 on element so it survives in DOM
       var thumb = document.createElement('div');
       thumb.className = 'late-thumb-item';
       thumb.style.cssText = 'position:relative;text-align:center;';
       thumb.dataset.base64 = parts[1];
-      thumb.dataset.mediaType = file.type || 'image/jpeg';
+      thumb.dataset.mediaType = mediaType;
       var img = document.createElement('img');
       img.src = dataUrl;
       img.style.cssText = 'height:60px;border-radius:4px;object-fit:cover;border:1px solid var(--border);display:block;';
@@ -2086,8 +2114,7 @@ function handleLateImages(input) {
         // Reset file input so same file can be added again if needed
         document.getElementById('f-late-img').value = '';
       }
-    };
-    reader.readAsDataURL(file);
+    });
   });
 }
 
@@ -2289,10 +2316,8 @@ async function analyseLateImage() {
 function handlePsImage(input) {
   const file = input.files[0];
   if (!file) return;
-  window._psMediaType = file.type || 'image/jpeg';
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const dataUrl = e.target.result;
+  readImageForAI(file, function(dataUrl, mediaType) {
+    window._psMediaType = mediaType;
     const parts = dataUrl.split(',');
     psImageBase64 = parts[1];
     window._psImageBase64 = parts[1];
@@ -2300,8 +2325,7 @@ function handlePsImage(input) {
     document.getElementById('ps-img-preview').style.display = 'block';
     document.getElementById('ps-upload-placeholder').style.display = 'none';
     document.getElementById('ps-analyse-btn-wrap').style.display = 'block';
-  };
-  reader.readAsDataURL(file);
+  });
 }
 
 // -- AI IMAGE ANALYSIS — ORDERLORD DAILY REPORT --------------------
